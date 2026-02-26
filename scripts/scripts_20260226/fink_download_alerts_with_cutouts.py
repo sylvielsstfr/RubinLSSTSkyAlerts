@@ -25,7 +25,7 @@ Convention de nommage des colonnes LSST (IMPORTANT) :
   - La bande spectrale est la VALEUR du champ r:band ∈ {u, g, r, i, z, y}
 
 Auteur : dagoret
-Date   : 2026-02
+Date   : 2026-02-26
 """
 
 import io
@@ -54,7 +54,7 @@ TAGS_CONFIG = {
 }
 
 # Nombre d'alertes par tag à télécharger
-N_PER_TAG = 200
+N_PER_TAG = 50
 
 # Colonnes à récupérer via /tags
 # ATTENTION : le préfixe 'r:' est le nom de la table diaSource dans le schéma LSST,
