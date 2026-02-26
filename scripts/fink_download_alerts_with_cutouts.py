@@ -1,82 +1,104 @@
 """
 fink_download_alerts_with_cutouts.py
 =====================================
-Téléchargement d'alertes ZTF depuis le broker Fink avec :
-  - courbes de lumière multi-bande (g, r)
-  - cutouts (Science, Template, Difference)
-  - scores des classifieurs Fink (snn, rf, drb...)
+Téléchargement d'alertes LSST/Rubin depuis le broker Fink avec :
+  - métadonnées et scores Fink (via /api/v1/tags)
+  - courbes de lumière multi-bande (via /api/v1/sources)
+  - cutouts (Science, Template, Difference) (via /api/v1/cutouts)
 
-Objectif : constituer un dataset d'entraînement pour un classifieur
-multimodal (CNN + Transformer) orienté LSST/Rubin.
+API Fink LSST : https://api.lsst.fink-portal.org/api/v1
+Swagger       : https://api.lsst.fink-portal.org/swagger.json
 
-API Fink (depuis janvier 2025) : https://api.fink-portal.org
-Doc interactive                 : https://api.fink-portal.org
-Tutoriels                       : https://github.com/astrolabsoftware/fink-tutorials
+Différences majeures vs ZTF :
+  - Pas de /latests : on utilise /tags (GET query params)
+  - objectId → diaObjectId / diaSourceId
+  - i:jd → r:midpointMjdTai  (MJD TAI)
+  - i:fid (int 1/2) → r:band  (str parmi ugrizy — les 6 bandes Rubin LSST)
+  - i:magpsf / i:sigmapsf → r:psfFlux / r:psfFluxErr  (en nJy, pas des magnitudes)
+  - Cutouts : retournés en JSON (array 2D float32), pas en FITS gzippé
+  - /cutouts prend diaSourceId (pas diaObjectId)
+
+Convention de nommage des colonnes LSST (IMPORTANT) :
+  - Préfixe 'r:' = champ de la table diaSource (schéma LSST DPDD)
+                   !! PAS la bande spectrale r de Rubin !!
+  - Préfixe 'f:' = champ calculé par Fink (classifieurs, cross-matches)
+  - La bande spectrale est la VALEUR du champ r:band ∈ {u, g, r, i, z, y}
 
 Auteur : dagoret
 Date   : 2026-02
 """
 
 import io
-import os
-import gzip
-import datetime
-import requests
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from astropy.io import fits
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+import requests
+from matplotlib import gridspec
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
 
-FINK_API = "https://api.fink-portal.org/api/v1"
+FINK_API = "https://api.lsst.fink-portal.org/api/v1"
 
-# Classes à télécharger et leur label binaire (1=extragalactique, 0=autre)
-CLASSES_CONFIG = {
-    "SN candidate"       : 1,   # candidats SN — extragalactique
-    "Early SN Ia candidate": 1, # SN Ia précoces — extragalactique
-    "QSO"                : 1,   # quasars — extragalactique
-    "AGN"                : 1,   # AGN — extragalactique
-    "RRLyrae"            : 0,   # variables galactiques
-    "EclBin"             : 0,   # binaires à éclipses — galactique
-    "LongPeriodV*"       : 0,   # Miras etc. — galactique
-    "Star"               : 0,   # étoiles non classifiées
+# Tags disponibles et leur label binaire (1=extragalactique, 0=autre/galactique)
+# GET /api/v1/tags pour la liste complète
+TAGS_CONFIG = {
+    "extragalactic_new_candidate"  : 1,  # nouveau (< 48h) + extragalactique
+    "extragalactic_lt20mag_candidate": 1, # rising, bright (mag < 20) + extragalactique
+    "sn_near_galaxy_candidate"     : 1,  # proche galaxie + SNe-like
+    "in_tns"                       : 1,  # contrepartie connue dans TNS
+    "hostless_candidate"           : 0,  # sans hôte (ELEPHANT)
 }
 
-# Nombre d'alertes par classe à télécharger
-N_PER_CLASS = 200
+# Nombre d'alertes par tag à télécharger
+N_PER_TAG = 200
 
-# Fenêtre temporelle (pour éviter de tout télécharger)
-STARTDATE = "2025-01-01"
-STOPDATE  = "2026-02-25"
+# Colonnes à récupérer via /tags
+# ATTENTION : le préfixe 'r:' est le nom de la table diaSource dans le schéma LSST,
+#             il n'a aucun rapport avec la bande spectrale 'r' de Rubin.
+#             La bande spectrale est la valeur de r:band ∈ {u, g, r, i, z, y}.
+# Préfixe f: = champs calculés par Fink (classifieurs, cross-matches)
+COLUMNS_TAGS = ",".join([
+    "r:diaObjectId",
+    "r:diaSourceId",
+    "r:midpointMjdTai",
+    "r:ra",
+    "r:dec",
+    "r:band",
+    "r:psfFlux",
+    "r:psfFluxErr",
+    "r:snr",
+    "r:reliability",
+    "r:extendedness",
+    "r:visit",
+    # Scores classifieurs Fink LSST
+    "f:clf_snnSnVsOthers_score",
+    "f:clf_earlySNIa_score",
+    "f:clf_cats_class",
+    "f:clf_cats_score",
+    # Cross-matches
+    "f:xm_simbad_otype",
+    "f:xm_tns_type",
+    "f:xm_tns_fullname",
+    "f:xm_legacydr8_zphot",
+    "f:xm_legacydr8_pstar",
+    "f:xm_mangrove_lum_dist",
+])
 
-# Colonnes photométriques + scores Fink à récupérer
-COLUMNS = ",".join([
-    "i:objectId",
-    "i:candid",
-    "i:jd",
-    "i:ra",
-    "i:dec",
-    "i:fid",           # filtre : 1=g, 2=r
-    "i:magpsf",
-    "i:sigmapsf",
-    "i:magnr",         # magnitude de la source de référence
-    "i:distnr",        # distance à la source de référence (arcsec)
-    "i:distpsnr1",     # distance au PS1 le plus proche
-    "i:sgscore1",      # score star/galaxy PS1 [0=étoile, 1=galaxie]
-    "i:classtar",      # SExtractor star/galaxy
-    "i:rb",            # Real/Bogus ZTF CNN (braai)
-    "i:drb",           # Deep Real/Bogus ZTF
-    "i:ndethist",      # nombre de détections historiques
-    "i:isdiffpos",     # signe de la différence
-    "d:rf_snia_vs_nonia",   # Random Forest SN Ia vs non-Ia
-    "d:snn_snia_vs_nonia",  # SuperNNova SN Ia vs non-Ia
-    "d:snn_sn_vs_all",      # SuperNNova SN vs tout
-    "d:cdsxmatch",          # cross-match SIMBAD
+# Colonnes pour les courbes de lumière (/sources)
+# r:band contiendra la bande spectrale Rubin : u, g, r, i, z ou y
+COLUMNS_SOURCES = ",".join([
+    "r:diaObjectId",
+    "r:diaSourceId",
+    "r:midpointMjdTai",
+    "r:band",
+    "r:psfFlux",
+    "r:psfFluxErr",
+    "r:snr",
+    "r:reliability",
 ])
 
 # Répertoires de sortie
@@ -91,94 +113,145 @@ LC_DIR.mkdir(exist_ok=True)
 # FONCTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_latests(class_name: str, n: int, startdate: str, stopdate: str) -> pd.DataFrame:
-    """Récupère les n dernières alertes d'une classe donnée."""
-    print(f"  → Fetching {n} alerts for class '{class_name}' ...")
-    r = requests.post(
-        f"{FINK_API}/latests",
-        json={
-            "class"      : class_name,
-            "n"          : n,
-            "columns"    : COLUMNS,
-            "startdate"  : startdate,
-            "stopdate"   : stopdate,
+def fetch_by_tag(tag: str, n: int) -> pd.DataFrame:
+    """Récupère les n dernières alertes d'un tag donné."""
+    print(f"  → Fetching {n} alerts for tag '{tag}' ...")
+    r = requests.get(
+        f"{FINK_API}/tags",
+        params={
+            "tag"          : tag,
+            "n"            : n,
+            "columns"      : COLUMNS_TAGS,
             "output-format": "json",
         },
         timeout=60,
     )
     if r.status_code != 200 or not r.text.strip():
-        print(f"    ✗ Erreur HTTP {r.status_code} pour '{class_name}'")
+        print(f"    ✗ Erreur HTTP {r.status_code} pour tag '{tag}'")
         return pd.DataFrame()
-    df = pd.read_json(io.BytesIO(r.content))
+    try:
+        df = pd.read_json(io.BytesIO(r.content))
+    except Exception as e:
+        print(f"    ✗ Erreur parsing JSON pour tag '{tag}': {e}")
+        return pd.DataFrame()
     print(f"    ✓ {len(df)} alertes reçues")
     return df
 
 
-def fetch_cutouts(object_id: str) -> dict:
+def fetch_lightcurve(dia_object_id: int) -> pd.DataFrame:
     """
-    Récupère les 3 cutouts (Science, Template, Difference) pour un objectId.
+    Récupère la courbe de lumière complète d'un diaObjectId
+    (toutes les diaSource associées).
+    """
+    r = requests.get(
+        f"{FINK_API}/sources",
+        params={
+            "diaObjectId"  : dia_object_id,
+            "columns"      : COLUMNS_SOURCES,
+            "output-format": "json",
+        },
+        timeout=30,
+    )
+    if r.status_code != 200 or not r.text.strip():
+        return pd.DataFrame()
+    try:
+        return pd.read_json(io.BytesIO(r.content))
+    except Exception:
+        return pd.DataFrame()
+
+
+def fetch_cutouts(dia_source_id: int) -> dict | None:
+    """
+    Récupère les 3 cutouts (Science, Template, Difference) pour un diaSourceId.
     Retourne un dict {"Science": array2D, "Template": array2D, "Difference": array2D}
     ou None si erreur.
-    
-    Note : le cutout le plus récent est retourné par défaut.
+
+    Note : l'API retourne du JSON avec des arrays 2D (float32), pas du FITS gzippé.
     """
     cutouts = {}
     for kind in ["Science", "Template", "Difference"]:
-        r = requests.post(
+        r = requests.get(
             f"{FINK_API}/cutouts",
-            json={
-                "objectId"     : object_id,
+            params={
+                "diaSourceId"  : dia_source_id,
                 "kind"         : kind,
-                "output-format": "array",   # retourne un array numpy sérialisé
+                "output-format": "array",
             },
             timeout=30,
         )
         if r.status_code != 200 or not r.content:
             return None
-        # Le contenu est un fichier FITS gzippé
         try:
-            with gzip.open(io.BytesIO(r.content)) as f:
-                with fits.open(f) as hdul:
-                    cutouts[kind] = hdul[0].data.astype(np.float32)
+            data = r.json()
+            # L'API retourne {"b:cutoutScience": [[...], ...]} ou similaire
+            key = list(data.keys())[0]
+            cutouts[kind] = np.array(data[key], dtype=np.float32)
         except Exception as e:
-            print(f"    ✗ Erreur cutout {kind} pour {object_id}: {e}")
+            print(f"    ✗ Erreur cutout {kind} pour diaSourceId={dia_source_id}: {e}")
             return None
     return cutouts
 
 
-def save_cutouts_npy(object_id: str, cutouts: dict, label: int):
-    """Sauvegarde les cutouts en .npy pour un objectId."""
+def save_cutouts_npy(dia_object_id: int, cutouts: dict, label: int):
+    """Sauvegarde les cutouts en .npy (shape: 3, H, W)."""
     arr = np.stack([
         cutouts["Science"],
         cutouts["Template"],
         cutouts["Difference"],
-    ], axis=0)  # shape: (3, H, W)
-    np.save(CUTOUT_DIR / f"{object_id}_label{label}.npy", arr)
+    ], axis=0)
+    np.save(CUTOUT_DIR / f"{dia_object_id}_label{label}.npy", arr)
 
 
-def plot_alert_summary(object_id: str, df_lc: pd.DataFrame, cutouts: dict, label: int):
-    """Visualisation rapide : courbe de lumière + 3 cutouts."""
+def flux_to_mag(flux, flux_err=None, zero_point=31.4):
+    """
+    Conversion psfFlux (nJy) → magnitude AB.
+
+    Le flux Rubin/LSST est en nanoJansky (nJy), système photométrique AB.
+    Le zero point est uniforme à 31.4 pour toutes les bandes (u, g, r, i, z, y)
+    car le système AB est défini par : mag_AB = -2.5 * log10(f_nu / 3631 Jy)
+    soit avec f_nu en nJy : mag_AB = -2.5 * log10(flux_nJy) + 31.4
+
+    Note : cette fonction travaille sur des arrays numpy et gère flux <= 0
+    (détections négatives dans les images de différence) en retournant NaN.
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mag = np.where(flux > 0, -2.5 * np.log10(flux) + zero_point, np.nan)
+        if flux_err is not None:
+            mag_err = np.where(flux > 0, 2.5 / np.log(10) * flux_err / flux, np.nan)
+            return mag, mag_err
+    return mag
+
+
+def plot_alert_summary(dia_object_id: int, df_lc: pd.DataFrame,
+                       cutouts: dict, label: int, tag: str):
+    """Visualisation rapide : courbe de lumière (flux) + 3 cutouts."""
     fig = plt.figure(figsize=(14, 5))
     gs  = gridspec.GridSpec(1, 4, figure=fig, wspace=0.35)
 
-    # Courbe de lumière
+    # Courbe de lumière en flux (nJy)
+    # r:band contient la bande spectrale Rubin : u, g, r, i, z, y
+    # (le préfixe 'r:' est le nom de table LSST, pas la bande r)
     ax_lc = fig.add_subplot(gs[0, 0])
-    band_colors = {1: ("g", "green"), 2: ("r", "red")}
-    df_lc_valid = df_lc[df_lc["d:tag"] == "valid"] if "d:tag" in df_lc.columns else df_lc
-    for fid, (band_name, color) in band_colors.items():
-        mask = df_lc_valid["i:fid"] == fid
-        if mask.sum() > 0:
-            ax_lc.errorbar(
-                df_lc_valid.loc[mask, "i:jd"] - df_lc_valid["i:jd"].min(),
-                df_lc_valid.loc[mask, "i:magpsf"],
-                yerr=df_lc_valid.loc[mask, "i:sigmapsf"],
-                fmt="o", color=color, label=band_name, markersize=4,
-            )
-    ax_lc.invert_yaxis()
-    ax_lc.set_xlabel("JD - JD0")
-    ax_lc.set_ylabel("mag PSF")
-    ax_lc.set_title(f"{object_id}\nlabel={'extragal' if label else 'galactic/other'}")
-    ax_lc.legend(fontsize=8)
+    RUBIN_BAND_COLORS = {
+        "u": "purple", "g": "green", "r": "red",
+        "i": "darkorange", "z": "saddlebrown", "y": "black",
+    }
+    if not df_lc.empty and "r:band" in df_lc.columns:
+        for band, color in RUBIN_BAND_COLORS.items():
+            mask = df_lc["r:band"] == band
+            if mask.sum() > 0:
+                t = df_lc.loc[mask, "r:midpointMjdTai"]
+                ax_lc.errorbar(
+                    t - t.min(),
+                    df_lc.loc[mask, "r:psfFlux"],       # flux en nJy
+                    yerr=df_lc.loc[mask, "r:psfFluxErr"],  # incertitude en nJy
+                    fmt="o", color=color, label=band, markersize=4,
+                )
+    ax_lc.axhline(0, color="gray", lw=0.5, ls="--")
+    ax_lc.set_xlabel("ΔmjdTai (days)")
+    ax_lc.set_ylabel("psfFlux (nJy)  [bandes u/g/r/i/z/y Rubin]")
+    ax_lc.set_title(f"diaObj {dia_object_id}\n{tag} | label={'extragal' if label else 'other'}")
+    ax_lc.legend(fontsize=7)
 
     # Cutouts
     for i, kind in enumerate(["Science", "Template", "Difference"]):
@@ -189,25 +262,9 @@ def plot_alert_summary(object_id: str, df_lc: pd.DataFrame, cutouts: dict, label
         ax.set_title(kind, fontsize=9)
         ax.axis("off")
 
-    plt.suptitle(f"Fink alert — {object_id}", fontsize=11, y=1.02)
-    plt.savefig(OUTPUT_DIR / f"{object_id}_summary.png", bbox_inches="tight", dpi=100)
+    plt.suptitle(f"Fink/LSST alert — diaObjectId={dia_object_id}", fontsize=10, y=1.02)
+    plt.savefig(OUTPUT_DIR / f"{dia_object_id}_summary.png", bbox_inches="tight", dpi=100)
     plt.close()
-
-
-def fetch_full_lightcurve(object_id: str) -> pd.DataFrame:
-    """Récupère la courbe de lumière complète d'un objet (toutes alertes historiques)."""
-    r = requests.post(
-        f"{FINK_API}/objects",
-        json={
-            "objectId"     : object_id,
-            "columns"      : COLUMNS,
-            "output-format": "json",
-        },
-        timeout=30,
-    )
-    if r.status_code != 200 or not r.text.strip():
-        return pd.DataFrame()
-    return pd.read_json(io.BytesIO(r.content))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -215,52 +272,59 @@ def fetch_full_lightcurve(object_id: str) -> pd.DataFrame:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    all_meta = []
-    n_cutout_ok = 0
+    all_meta     = []
+    n_cutout_ok  = 0
     n_cutout_fail = 0
+    n_plot       = 0
 
-    for class_name, label in CLASSES_CONFIG.items():
+    for tag, label in TAGS_CONFIG.items():
         print(f"\n{'='*60}")
-        print(f"Classe : {class_name}  (label={label})")
+        print(f"Tag : {tag}  (label={label})")
         print(f"{'='*60}")
 
-        # 1. Récupère la liste des alertes (sans cutouts, rapide)
-        df_class = fetch_latests(class_name, N_PER_CLASS, STARTDATE, STOPDATE)
-        if df_class.empty:
+        # 1. Récupère la liste des alertes pour ce tag
+        df_tag = fetch_by_tag(tag, N_PER_TAG)
+        if df_tag.empty:
             continue
 
-        df_class["label"]      = label
-        df_class["class_name"] = class_name
+        df_tag["label"]    = label
+        df_tag["fink_tag"] = tag
 
-        # Dédoublonnage sur objectId (on veut 1 entrée par objet)
-        object_ids = df_class["i:objectId"].unique()
-        print(f"  → {len(object_ids)} objets uniques")
+        # Dédoublonnage sur diaObjectId
+        obj_ids = df_tag["r:diaObjectId"].unique()
+        print(f"  → {len(obj_ids)} diaObjectIds uniques")
 
-        for obj_id in object_ids[:N_PER_CLASS]:  # limite stricte
-            # 2. Courbe de lumière complète
-            df_lc = fetch_full_lightcurve(obj_id)
+        for obj_id in obj_ids[:N_PER_TAG]:
+            # diaSourceId : prendre la source la plus récente pour les cutouts
+            rows = df_tag[df_tag["r:diaObjectId"] == obj_id]
+            latest_row = rows.sort_values("r:midpointMjdTai").iloc[-1]
+            src_id = int(latest_row["r:diaSourceId"])
+
+            # 2. Courbe de lumière complète (toutes sources)
+            df_lc = fetch_lightcurve(obj_id)
             if not df_lc.empty:
                 df_lc.to_parquet(LC_DIR / f"{obj_id}.parquet", index=False)
 
-            # 3. Cutouts (le plus récent par défaut)
-            cutouts = fetch_cutouts(obj_id)
+            # 3. Cutouts (source la plus récente)
+            cutouts = fetch_cutouts(src_id)
             if cutouts is not None:
                 save_cutouts_npy(obj_id, cutouts, label)
                 n_cutout_ok += 1
 
-                # Visualisation pour les 5 premiers de chaque classe
-                if n_cutout_ok <= 5 and not df_lc.empty:
+                # Visualisation pour les 3 premiers par tag
+                if n_plot < 3 * len(TAGS_CONFIG):
                     try:
-                        plot_alert_summary(obj_id, df_lc, cutouts, label)
+                        plot_alert_summary(obj_id, df_lc, cutouts, label, tag)
+                        n_plot += 1
                     except Exception as e:
                         print(f"    ✗ Plot échoué pour {obj_id}: {e}")
             else:
                 n_cutout_fail += 1
-                print(f"    ✗ Cutouts indisponibles pour {obj_id}")
+                print(f"    ✗ Cutouts indisponibles pour diaSourceId={src_id}")
 
-        all_meta.append(df_class)
+        all_meta.append(df_tag)
 
-    # Sauvegarde du catalogue complet
+    # ── Sauvegarde du catalogue complet ──────────────────────────────────────
     print(f"\n{'='*60}")
     if all_meta:
         df_all = pd.concat(all_meta, ignore_index=True)
@@ -269,22 +333,29 @@ def main():
         print(f"✓ Catalogue sauvegardé : {len(df_all)} alertes")
         print(f"  → {OUTPUT_DIR / 'alerts_catalog.parquet'}")
 
+        # Résumé par tag
+        print("\nRésumé par tag :")
+        print(df_all.groupby("fink_tag")[["r:diaObjectId", "label"]].agg(
+            n_alerts=("r:diaObjectId", "count"),
+            label=("label", "first"),
+        ).to_string())
+
     print(f"\n✓ Cutouts réussis  : {n_cutout_ok}")
     print(f"✗ Cutouts échoués  : {n_cutout_fail}")
     print(f"\nDataset dans : {OUTPUT_DIR.resolve()}")
     print("Structure :")
     print("  fink_dataset/")
     print("    alerts_catalog.parquet   # métadonnées + scores Fink")
+    print("    alerts_catalog.csv       # idem en CSV")
     print("    cutouts/                 # arrays .npy shape (3, H, W)")
-    print("    lightcurves/             # courbes de lumière .parquet par objet")
+    print("    lightcurves/             # courbes de lumière .parquet par diaObjectId")
     print("    *_summary.png            # visualisations rapides")
 
 
 if __name__ == "__main__":
-    print(f"Fink API : {FINK_API}")
-    print(f"Période  : {STARTDATE} → {STOPDATE}")
-    print(f"Classes  : {list(CLASSES_CONFIG.keys())}")
-    print(f"N/classe : {N_PER_CLASS}")
+    print(f"Fink API (LSST) : {FINK_API}")
+    print(f"Tags     : {list(TAGS_CONFIG.keys())}")
+    print(f"N/tag    : {N_PER_TAG}")
     print(f"Output   : {OUTPUT_DIR.resolve()}")
     print()
     main()
