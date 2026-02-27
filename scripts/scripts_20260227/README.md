@@ -225,6 +225,65 @@ Sections:
 
 ---
 
+## Pipeline C — Sky map
+
+Visualize the spatial distribution of all downloaded alerts on a sky map.
+
+```
+C1: fink_skymap_lib.py  +  fink_dataset/  →  C2: fink_skymap.ipynb
+```
+
+> **Requires**: `fink_dataset/` populated by pipeline A (step A1).
+
+### Step C1 — `fink_skymap_lib.py`
+
+**Shared library — not run directly.**
+
+Provides all sky map plotting functions:
+
+| Symbol | Description |
+|---|---|
+| `load_catalog` | Load and deduplicate the alert catalog |
+| `catalog_summary` | Per-tag statistics (counts, RA/Dec range, SNN mean) |
+| `plot_skymap_rect` | Rectangular (RA, Dec) projection, zoomable |
+| `plot_skymap_mollweide` | Full-sky Mollweide projection |
+| `plot_skymap_combined` | Two-panel: Mollweide + rectangular zoom |
+| `galactic_plane_radec` | Galactic plane curve in ICRS coordinates |
+| `ra_deg_to_hms` | Convert RA degrees → HH:MM string |
+| `RUBIN_DDF` | List of Rubin LSST Deep Drilling Fields |
+| `TAG_STYLES` | Color/marker scheme per Fink tag |
+
+The library supports:
+- Per-tag color coding (blue / green / yellow / red / purple)
+- RA axis labels in **HMS** (HH:MM) or **degrees** — user-selectable
+- Dec axis in degrees
+- Galactic plane (b=0) and optional galactic band (±b°)
+- Rubin LSST DDF positions with labels
+- RA/Dec grid with configurable step
+- Optional real sky background via CDS HiPS tiles (`astroquery` required)
+
+### Step C2 — `fink_skymap.ipynb`
+
+**Sky map notebook.**
+
+Sections:
+1. Load catalog and print per-tag statistics
+2. Set global parameters (RA unit, grid step, overlays, sky background)
+3. Combined view: Mollweide (full sky) + rectangular zoom
+4. Mollweide projection only
+5. Rectangular zoom on data region
+6. Rectangular map with RA in degrees (alternative to HMS)
+7. Per-tag individual maps
+8. SNR-weighted scatter (marker size ∝ SNR)
+9. SNN score color map (continuous colormap)
+10. CDS HiPS sky background (DSS2, 2MASS, PanSTARRS…) — requires `astroquery`
+11. DDF cross-match and zoom on individual DDFs
+12. 2D alert density histogram
+
+**Requires**: `fink_skymap_lib.py` and `fink_dataset/` (pipeline A).
+
+---
+
 ## File summary
 
 | File | Type | Purpose | Run order |
@@ -235,6 +294,8 @@ Sections:
 | `fink_alert_browser.ipynb` | Notebook | Interactive multi-object browser | **A3 — after A1** |
 | `fink_download_full_cutouts.py` | Script | Download all cutouts for one object | **B1 — first** |
 | `fink_cutout_timeline.ipynb` | Notebook | Temporal viewer + ML dataset builder | **B2 — after B1** |
+| `fink_skymap_lib.py` | Library | Sky map plotting functions | C1 — imported |
+| `fink_skymap.ipynb` | Notebook | Interactive sky map | **C2 — after A1** |
 | `fink_dataset/` | Directory | Output of pipeline A | — |
 | `fullcutouts_{id}/` | Directory | Output of pipeline B | — |
 

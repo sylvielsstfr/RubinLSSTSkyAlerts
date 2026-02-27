@@ -46,11 +46,11 @@ FINK_API = "https://api.lsst.fink-portal.org/api/v1"
 # Tags disponibles et leur label binaire (1=extragalactique, 0=autre/galactique)
 # GET /api/v1/tags pour la liste complète
 TAGS_CONFIG = {
-    "extragalactic_new_candidate"  : 1,  # nouveau (< 48h) + extragalactique
-    "extragalactic_lt20mag_candidate": 1, # rising, bright (mag < 20) + extragalactique
-    "sn_near_galaxy_candidate"     : 1,  # proche galaxie + SNe-like
-    "in_tns"                       : 1,  # contrepartie connue dans TNS
-    "hostless_candidate"           : 0,  # sans hôte (ELEPHANT)
+    "extragalactic_new_candidate": 1,  # nouveau (< 48h) + extragalactique
+    "extragalactic_lt20mag_candidate": 1,  # rising, bright (mag < 20) + extragalactique
+    "sn_near_galaxy_candidate": 1,  # proche galaxie + SNe-like
+    "in_tns": 1,  # contrepartie connue dans TNS
+    "hostless_candidate": 0,  # sans hôte (ELEPHANT)
 }
 
 # Nombre d'alertes par tag à télécharger
@@ -61,50 +61,54 @@ N_PER_TAG = 50
 #             il n'a aucun rapport avec la bande spectrale 'r' de Rubin.
 #             La bande spectrale est la valeur de r:band ∈ {u, g, r, i, z, y}.
 # Préfixe f: = champs calculés par Fink (classifieurs, cross-matches)
-COLUMNS_TAGS = ",".join([
-    "r:diaObjectId",
-    "r:diaSourceId",
-    "r:midpointMjdTai",
-    "r:ra",
-    "r:dec",
-    "r:band",
-    "r:psfFlux",
-    "r:psfFluxErr",
-    "r:snr",
-    "r:reliability",
-    "r:extendedness",
-    "r:visit",
-    # Scores classifieurs Fink LSST
-    "f:clf_snnSnVsOthers_score",
-    "f:clf_earlySNIa_score",
-    "f:clf_cats_class",
-    "f:clf_cats_score",
-    # Cross-matches
-    "f:xm_simbad_otype",
-    "f:xm_tns_type",
-    "f:xm_tns_fullname",
-    "f:xm_legacydr8_zphot",
-    "f:xm_legacydr8_pstar",
-    "f:xm_mangrove_lum_dist",
-])
+COLUMNS_TAGS = ",".join(
+    [
+        "r:diaObjectId",
+        "r:diaSourceId",
+        "r:midpointMjdTai",
+        "r:ra",
+        "r:dec",
+        "r:band",
+        "r:psfFlux",
+        "r:psfFluxErr",
+        "r:snr",
+        "r:reliability",
+        "r:extendedness",
+        "r:visit",
+        # Scores classifieurs Fink LSST
+        "f:clf_snnSnVsOthers_score",
+        "f:clf_earlySNIa_score",
+        "f:clf_cats_class",
+        "f:clf_cats_score",
+        # Cross-matches
+        "f:xm_simbad_otype",
+        "f:xm_tns_type",
+        "f:xm_tns_fullname",
+        "f:xm_legacydr8_zphot",
+        "f:xm_legacydr8_pstar",
+        "f:xm_mangrove_lum_dist",
+    ]
+)
 
 # Colonnes pour les courbes de lumière (/sources)
 # r:band contiendra la bande spectrale Rubin : u, g, r, i, z ou y
-COLUMNS_SOURCES = ",".join([
-    "r:diaObjectId",
-    "r:diaSourceId",
-    "r:midpointMjdTai",
-    "r:band",
-    "r:psfFlux",
-    "r:psfFluxErr",
-    "r:snr",
-    "r:reliability",
-])
+COLUMNS_SOURCES = ",".join(
+    [
+        "r:diaObjectId",
+        "r:diaSourceId",
+        "r:midpointMjdTai",
+        "r:band",
+        "r:psfFlux",
+        "r:psfFluxErr",
+        "r:snr",
+        "r:reliability",
+    ]
+)
 
 # Répertoires de sortie
 OUTPUT_DIR = Path("fink_dataset")
 CUTOUT_DIR = OUTPUT_DIR / "cutouts"
-LC_DIR     = OUTPUT_DIR / "lightcurves"
+LC_DIR = OUTPUT_DIR / "lightcurves"
 OUTPUT_DIR.mkdir(exist_ok=True)
 CUTOUT_DIR.mkdir(exist_ok=True)
 LC_DIR.mkdir(exist_ok=True)
@@ -113,15 +117,16 @@ LC_DIR.mkdir(exist_ok=True)
 # FONCTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def fetch_by_tag(tag: str, n: int) -> pd.DataFrame:
     """Récupère les n dernières alertes d'un tag donné."""
     print(f"  → Fetching {n} alerts for tag '{tag}' ...")
     r = requests.get(
         f"{FINK_API}/tags",
         params={
-            "tag"          : tag,
-            "n"            : n,
-            "columns"      : COLUMNS_TAGS,
+            "tag": tag,
+            "n": n,
+            "columns": COLUMNS_TAGS,
             "output-format": "json",
         },
         timeout=60,
@@ -146,8 +151,8 @@ def fetch_lightcurve(dia_object_id: int) -> pd.DataFrame:
     r = requests.get(
         f"{FINK_API}/sources",
         params={
-            "diaObjectId"  : dia_object_id,
-            "columns"      : COLUMNS_SOURCES,
+            "diaObjectId": dia_object_id,
+            "columns": COLUMNS_SOURCES,
             "output-format": "json",
         },
         timeout=30,
@@ -173,8 +178,8 @@ def fetch_cutouts(dia_source_id: int) -> dict | None:
         r = requests.get(
             f"{FINK_API}/cutouts",
             params={
-                "diaSourceId"  : dia_source_id,
-                "kind"         : kind,
+                "diaSourceId": dia_source_id,
+                "kind": kind,
                 "output-format": "array",
             },
             timeout=30,
@@ -194,11 +199,14 @@ def fetch_cutouts(dia_source_id: int) -> dict | None:
 
 def save_cutouts_npy(dia_object_id: int, cutouts: dict, label: int):
     """Sauvegarde les cutouts en .npy (shape: 3, H, W)."""
-    arr = np.stack([
-        cutouts["Science"],
-        cutouts["Template"],
-        cutouts["Difference"],
-    ], axis=0)
+    arr = np.stack(
+        [
+            cutouts["Science"],
+            cutouts["Template"],
+            cutouts["Difference"],
+        ],
+        axis=0,
+    )
     np.save(CUTOUT_DIR / f"{dia_object_id}_label{label}.npy", arr)
 
 
@@ -222,19 +230,22 @@ def flux_to_mag(flux, flux_err=None, zero_point=31.4):
     return mag
 
 
-def plot_alert_summary(dia_object_id: int, df_lc: pd.DataFrame,
-                       cutouts: dict, label: int, tag: str):
+def plot_alert_summary(dia_object_id: int, df_lc: pd.DataFrame, cutouts: dict, label: int, tag: str):
     """Visualisation rapide : courbe de lumière (flux) + 3 cutouts."""
     fig = plt.figure(figsize=(14, 5))
-    gs  = gridspec.GridSpec(1, 4, figure=fig, wspace=0.35)
+    gs = gridspec.GridSpec(1, 4, figure=fig, wspace=0.35)
 
     # Courbe de lumière en flux (nJy)
     # r:band contient la bande spectrale Rubin : u, g, r, i, z, y
     # (le préfixe 'r:' est le nom de table LSST, pas la bande r)
     ax_lc = fig.add_subplot(gs[0, 0])
     RUBIN_BAND_COLORS = {
-        "u": "purple", "g": "green", "r": "red",
-        "i": "darkorange", "z": "saddlebrown", "y": "black",
+        "u": "purple",
+        "g": "green",
+        "r": "red",
+        "i": "darkorange",
+        "z": "saddlebrown",
+        "y": "black",
     }
     if not df_lc.empty and "r:band" in df_lc.columns:
         for band, color in RUBIN_BAND_COLORS.items():
@@ -243,9 +254,12 @@ def plot_alert_summary(dia_object_id: int, df_lc: pd.DataFrame,
                 t = df_lc.loc[mask, "r:midpointMjdTai"]
                 ax_lc.errorbar(
                     t - t.min(),
-                    df_lc.loc[mask, "r:psfFlux"],       # flux en nJy
+                    df_lc.loc[mask, "r:psfFlux"],  # flux en nJy
                     yerr=df_lc.loc[mask, "r:psfFluxErr"],  # incertitude en nJy
-                    fmt="o", color=color, label=band, markersize=4,
+                    fmt="o",
+                    color=color,
+                    label=band,
+                    markersize=4,
                 )
     ax_lc.axhline(0, color="gray", lw=0.5, ls="--")
     ax_lc.set_xlabel("ΔmjdTai (days)")
@@ -271,11 +285,12 @@ def plot_alert_summary(dia_object_id: int, df_lc: pd.DataFrame,
 # PIPELINE PRINCIPAL
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def main():
-    all_meta     = []
-    n_cutout_ok  = 0
+    all_meta = []
+    n_cutout_ok = 0
     n_cutout_fail = 0
-    n_plot       = 0
+    n_plot = 0
 
     for tag, label in TAGS_CONFIG.items():
         print(f"\n{'='*60}")
@@ -287,7 +302,7 @@ def main():
         if df_tag.empty:
             continue
 
-        df_tag["label"]    = label
+        df_tag["label"] = label
         df_tag["fink_tag"] = tag
 
         # Dédoublonnage sur diaObjectId
@@ -335,10 +350,14 @@ def main():
 
         # Résumé par tag
         print("\nRésumé par tag :")
-        print(df_all.groupby("fink_tag")[["r:diaObjectId", "label"]].agg(
-            n_alerts=("r:diaObjectId", "count"),
-            label=("label", "first"),
-        ).to_string())
+        print(
+            df_all.groupby("fink_tag")[["r:diaObjectId", "label"]]
+            .agg(
+                n_alerts=("r:diaObjectId", "count"),
+                label=("label", "first"),
+            )
+            .to_string()
+        )
 
     print(f"\n✓ Cutouts réussis  : {n_cutout_ok}")
     print(f"✗ Cutouts échoués  : {n_cutout_fail}")

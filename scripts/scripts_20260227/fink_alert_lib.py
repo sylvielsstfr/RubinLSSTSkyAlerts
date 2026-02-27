@@ -41,17 +41,22 @@ from astropy.visualization import ZScaleInterval
 # Colors for each Rubin LSST spectral band (u g r i z y)
 # Note: 'r:' column prefix is the diaSource table prefix, NOT band 'r'
 BAND_COLORS: dict[str, str] = {
-    "u": "#7B2FBE",    # violet
-    "g": "#2CA02C",    # green
-    "r": "#D62728",    # red
-    "i": "#FF7F0E",    # orange
-    "z": "#8C4A2F",    # brown
-    "y": "#1A1A1A",    # near-black
+    "u": "#7B2FBE",  # violet
+    "g": "#2CA02C",  # green
+    "r": "#D62728",  # red
+    "i": "#FF7F0E",  # orange
+    "z": "#8C4A2F",  # brown
+    "y": "#1A1A1A",  # near-black
 }
 
 # Approximate central wavelengths (nm) for the 6 Rubin bands
 BAND_WAVELENGTHS: dict[str, int] = {
-    "u": 365, "g": 480, "r": 620, "i": 750, "z": 880, "y": 1000,
+    "u": 365,
+    "g": 480,
+    "r": 620,
+    "i": 750,
+    "z": 880,
+    "y": 1000,
 }
 
 # AB magnitude zero point for Rubin/LSST (uniform across all bands)
@@ -59,17 +64,18 @@ BAND_WAVELENGTHS: dict[str, int] = {
 RUBIN_ZEROPOINT: float = 31.4
 
 # Dark theme colors
-DARK_BG   = "#0d1117"
-PANEL_BG  = "#161b22"
-TEXT_COL  = "#e6edf3"
+DARK_BG = "#0d1117"
+PANEL_BG = "#161b22"
+TEXT_COL = "#e6edf3"
 MUTED_COL = "#8b949e"
-ACCENT    = "#58a6ff"
+ACCENT = "#58a6ff"
 HIGHLIGHT = "#f0e040"
-BORDER    = "#30363d"
+BORDER = "#30363d"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dataset loader
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class FinkDataset:
     """
@@ -83,8 +89,8 @@ class FinkDataset:
 
     def __init__(self, dataset_dir: str | Path) -> None:
         self.dataset_dir = Path(dataset_dir)
-        self.lc_dir      = self.dataset_dir / "lightcurves"
-        self.cutout_dir  = self.dataset_dir / "cutouts"
+        self.lc_dir = self.dataset_dir / "lightcurves"
+        self.cutout_dir = self.dataset_dir / "cutouts"
 
         # Load catalog
         self.catalog = pd.read_parquet(self.dataset_dir / "alerts_catalog.parquet")
@@ -93,7 +99,7 @@ class FinkDataset:
         self.cutout_index: dict[int, dict] = {}
         for f in self.cutout_dir.glob("*.npy"):
             obj_id = int(f.stem.split("_label")[0])
-            label  = int(f.stem.split("_label")[1])
+            label = int(f.stem.split("_label")[1])
             # Keep the entry even if the same obj_id appears twice with different labels
             # (prefer label=1 if both exist)
             if obj_id not in self.cutout_index or label == 1:
@@ -140,10 +146,8 @@ class FinkDataset:
 
     def summary(self) -> pd.DataFrame:
         """Return a summary DataFrame with counts per tag."""
-        return (
-            self.catalog
-            .groupby("fink_tag")[["r:diaObjectId", "label"]]
-            .agg(n_alerts=("r:diaObjectId", "count"), label=("label", "first"))
+        return self.catalog.groupby("fink_tag")[["r:diaObjectId", "label"]].agg(
+            n_alerts=("r:diaObjectId", "count"), label=("label", "first")
         )
 
     def list_objects(self, tag: str) -> pd.DataFrame:
@@ -153,11 +157,19 @@ class FinkDataset:
         """
         sub = self.catalog[self.catalog["fink_tag"] == tag].copy()
         cols = [
-            "r:diaObjectId", "r:band", "r:ra", "r:dec",
-            "r:psfFlux", "r:snr", "r:midpointMjdTai",
-            "f:clf_snnSnVsOthers_score", "f:clf_earlySNIa_score",
-            "f:xm_tns_fullname", "f:xm_tns_type",
-            "f:xm_legacydr8_zphot", "label",
+            "r:diaObjectId",
+            "r:band",
+            "r:ra",
+            "r:dec",
+            "r:psfFlux",
+            "r:snr",
+            "r:midpointMjdTai",
+            "f:clf_snnSnVsOthers_score",
+            "f:clf_earlySNIa_score",
+            "f:xm_tns_fullname",
+            "f:xm_tns_type",
+            "f:xm_legacydr8_zphot",
+            "label",
         ]
         cols = [c for c in cols if c in sub.columns]
         return (
@@ -171,6 +183,7 @@ class FinkDataset:
 # ─────────────────────────────────────────────────────────────────────────────
 # Photometric utilities
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def flux_to_mag(
     flux: np.ndarray | float,
@@ -227,6 +240,7 @@ def _zscale(img: np.ndarray, contrast: float = 0.25) -> tuple[float, float]:
 # Axis / theme helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _style_ax(ax: plt.Axes, title: str = "", xlabel: str = "", ylabel: str = "") -> None:
     """Apply the dark Fink-portal theme to a matplotlib Axes."""
     ax.set_facecolor(PANEL_BG)
@@ -257,6 +271,7 @@ def _legend(ax: plt.Axes, **kwargs) -> None:
 # Core plot functions
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def plot_lightcurve_flux(
     df_lc: pd.DataFrame,
     ax: plt.Axes | None = None,
@@ -282,8 +297,9 @@ def plot_lightcurve_flux(
         _, ax = plt.subplots(figsize=(7, 4), facecolor=DARK_BG)
 
     if df_lc.empty or "r:band" not in df_lc.columns:
-        ax.text(0.5, 0.5, "No light curve data", transform=ax.transAxes,
-                ha="center", va="center", color=MUTED_COL)
+        ax.text(
+            0.5, 0.5, "No light curve data", transform=ax.transAxes, ha="center", va="center", color=MUTED_COL
+        )
         _style_ax(ax, title=title)
         return ax
 
@@ -292,14 +308,20 @@ def plot_lightcurve_flux(
 
     for band in sorted(df_lc["r:band"].unique()):
         mask = df_lc["r:band"] == band
-        t  = df_lc.loc[mask, "r:midpointMjdTai"] - t0
-        f  = df_lc.loc[mask, "r:psfFlux"]
+        t = df_lc.loc[mask, "r:midpointMjdTai"] - t0
+        f = df_lc.loc[mask, "r:psfFlux"]
         fe = df_lc.loc[mask, "r:psfFluxErr"]
         ax.errorbar(
-            t, f, yerr=fe,
-            fmt="o", color=BAND_COLORS.get(band, "gray"),
+            t,
+            f,
+            yerr=fe,
+            fmt="o",
+            color=BAND_COLORS.get(band, "gray"),
             label=f"{band}  ({BAND_WAVELENGTHS.get(band, '?')} nm)",
-            markersize=5, capsize=2, lw=1, alpha=0.9,
+            markersize=5,
+            capsize=2,
+            lw=1,
+            alpha=0.9,
         )
 
     ax.axhline(0, color="#444", lw=0.8, ls="--")
@@ -323,8 +345,9 @@ def plot_lightcurve_mag(
         _, ax = plt.subplots(figsize=(7, 4), facecolor=DARK_BG)
 
     if df_lc.empty or "r:band" not in df_lc.columns:
-        ax.text(0.5, 0.5, "No light curve data", transform=ax.transAxes,
-                ha="center", va="center", color=MUTED_COL)
+        ax.text(
+            0.5, 0.5, "No light curve data", transform=ax.transAxes, ha="center", va="center", color=MUTED_COL
+        )
         _style_ax(ax, title=title)
         return ax
 
@@ -333,17 +356,23 @@ def plot_lightcurve_mag(
 
     for band in sorted(df_lc["r:band"].unique()):
         mask = df_lc["r:band"] == band
-        t    = df_lc.loc[mask, "r:midpointMjdTai"].values - t0
-        f    = df_lc.loc[mask, "r:psfFlux"].values
-        fe   = df_lc.loc[mask, "r:psfFluxErr"].values
+        t = df_lc.loc[mask, "r:midpointMjdTai"].values - t0
+        f = df_lc.loc[mask, "r:psfFlux"].values
+        fe = df_lc.loc[mask, "r:psfFluxErr"].values
         mag, mag_err = flux_to_mag(f, fe)
         valid = np.isfinite(mag)
         if valid.sum() > 0:
             ax.errorbar(
-                t[valid], mag[valid], yerr=mag_err[valid],
-                fmt="o", color=BAND_COLORS.get(band, "gray"),
+                t[valid],
+                mag[valid],
+                yerr=mag_err[valid],
+                fmt="o",
+                color=BAND_COLORS.get(band, "gray"),
                 label=f"{band}  ({BAND_WAVELENGTHS.get(band, '?')} nm)",
-                markersize=5, capsize=2, lw=1, alpha=0.9,
+                markersize=5,
+                capsize=2,
+                lw=1,
+                alpha=0.9,
             )
 
     ax.invert_yaxis()
@@ -381,7 +410,7 @@ def plot_cutouts(
     if axes is None:
         fig, axes = plt.subplots(1, 3, figsize=figsize, facecolor=DARK_BG)
 
-    for idx, (name, cmap) in enumerate(zip(names, cmaps)):
+    for idx, (name, cmap) in enumerate(zip(names, cmaps, strict=False)):
         ax = axes[idx]
         ax.set_facecolor(PANEL_BG)
 
@@ -394,8 +423,12 @@ def plot_cutouts(
                 vmin, vmax = -absmax, absmax
 
             im = ax.imshow(
-                img, origin="lower", cmap=cmap,
-                vmin=vmin, vmax=vmax, interpolation="nearest",
+                img,
+                origin="lower",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest",
                 extent=[0, W, 0, H],
             )
             cb = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -406,26 +439,42 @@ def plot_cutouts(
             ax.plot(W / 2, H / 2, "+", color=HIGHLIGHT, ms=14, mew=2)
             # Indicative aperture circle (radius 3 pixels)
             circle = plt.Circle(
-                (W / 2, H / 2), 3,
-                color=HIGHLIGHT, fill=False, lw=1, ls="--", alpha=0.7,
+                (W / 2, H / 2),
+                3,
+                color=HIGHLIGHT,
+                fill=False,
+                lw=1,
+                ls="--",
+                alpha=0.7,
             )
             ax.add_patch(circle)
 
             # Stats overlay
             ax.text(
-                0.98, 0.02,
+                0.98,
+                0.02,
                 f"{H}×{W} pix\nmin={img.min():.0f}\nmax={img.max():.0f}\nstd={img.std():.0f}",
-                transform=ax.transAxes, color=MUTED_COL, fontsize=6,
-                ha="right", va="bottom", fontfamily="monospace",
+                transform=ax.transAxes,
+                color=MUTED_COL,
+                fontsize=6,
+                ha="right",
+                va="bottom",
+                fontfamily="monospace",
                 bbox=dict(facecolor=DARK_BG, alpha=0.7, edgecolor="none", pad=2),
             )
         else:
-            ax.text(0.5, 0.5, "No cutout\navailable",
-                    transform=ax.transAxes, ha="center", va="center",
-                    color=MUTED_COL, fontsize=10)
+            ax.text(
+                0.5,
+                0.5,
+                "No cutout\navailable",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                color=MUTED_COL,
+                fontsize=10,
+            )
 
-        _style_ax(ax, title=f"{name}  [band {band}]",
-                  xlabel="x (pix)", ylabel="y (pix)")
+        _style_ax(ax, title=f"{name}  [band {band}]", xlabel="x (pix)", ylabel="y (pix)")
 
     return list(axes)
 
@@ -445,23 +494,26 @@ def plot_classifiers(
 
     scores = {
         "SNN\n(SN vs others)": float(meta.get("f:clf_snnSnVsOthers_score", 0)),
-        "Early SN Ia":         max(0.0, float(meta.get("f:clf_earlySNIa_score", 0))),
-        "CATS score":          float(meta.get("f:clf_cats_score", 0)),
+        "Early SN Ia": max(0.0, float(meta.get("f:clf_earlySNIa_score", 0))),
+        "CATS score": float(meta.get("f:clf_cats_score", 0)),
     }
     labels = list(scores.keys())
-    vals   = list(scores.values())
+    vals = list(scores.values())
     colors = [ACCENT if v >= 0.5 else "#f85149" for v in vals]
 
     bars = ax.barh(labels, vals, color=colors, alpha=0.85, height=0.5)
     ax.axvline(0.5, color=HIGHLIGHT, lw=1.2, ls="--", alpha=0.8, label="threshold 0.5")
     ax.set_xlim(0, 1)
 
-    for bar, val in zip(bars, vals):
+    for bar, val in zip(bars, vals, strict=False):
         ax.text(
             min(val + 0.02, 0.92),
             bar.get_y() + bar.get_height() / 2,
             f"{val:.3f}",
-            va="center", color=TEXT_COL, fontsize=9, fontfamily="monospace",
+            va="center",
+            color=TEXT_COL,
+            fontsize=9,
+            fontfamily="monospace",
         )
 
     _style_ax(ax, title="Fink classifiers", xlabel="Score")
@@ -472,6 +524,7 @@ def plot_classifiers(
 # ─────────────────────────────────────────────────────────────────────────────
 # Composite views
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def plot_alert_overview(
     dataset: FinkDataset,
@@ -493,22 +546,24 @@ def plot_alert_overview(
     save : bool
         If True, saves the figure to fink_dataset/{obj_id}_viewer.png.
     """
-    meta       = dataset.get_meta(obj_id)
-    df_lc      = dataset.get_lightcurve(obj_id)
-    cutouts    = dataset.get_cutouts(obj_id)
-    band       = meta.get("r:band", "?")
+    meta = dataset.get_meta(obj_id)
+    df_lc = dataset.get_lightcurve(obj_id)
+    cutouts = dataset.get_cutouts(obj_id)
+    band = meta.get("r:band", "?")
 
     fig = plt.figure(figsize=figsize, facecolor=DARK_BG)
-    gs  = gridspec.GridSpec(1, 5, figure=fig, wspace=0.3,
-                            left=0.05, right=0.97, top=0.88, bottom=0.15)
+    gs = gridspec.GridSpec(1, 5, figure=fig, wspace=0.3, left=0.05, right=0.97, top=0.88, bottom=0.15)
 
     # Title
-    tns     = meta.get("f:xm_tns_fullname", "")
+    tns = meta.get("f:xm_tns_fullname", "")
     tns_str = f"  →  TNS: {tns}" if pd.notna(tns) and tns else ""
     label_str = "EXTRAGALACTIC" if meta["label"] == 1 else "OTHER"
     fig.suptitle(
         f"diaObjectId {obj_id}{tns_str}     [{label_str}]  |  tag: {meta['fink_tag']}",
-        fontsize=10, color=TEXT_COL, fontfamily="monospace", y=0.97,
+        fontsize=10,
+        color=TEXT_COL,
+        fontfamily="monospace",
+        y=0.97,
     )
 
     # Flux light curve
@@ -553,22 +608,25 @@ def plot_alert_detail(
     save : bool
         If True, saves the figure to fink_dataset/{obj_id}_detail.png.
     """
-    meta    = dataset.get_meta(obj_id)
-    df_lc   = dataset.get_lightcurve(obj_id)
+    meta = dataset.get_meta(obj_id)
+    df_lc = dataset.get_lightcurve(obj_id)
     cutouts = dataset.get_cutouts(obj_id)
-    band    = meta.get("r:band", "?")
+    band = meta.get("r:band", "?")
 
     fig, axes = plt.subplots(2, 3, figsize=figsize, facecolor=DARK_BG)
     fig.patch.set_facecolor(DARK_BG)
 
-    tns     = meta.get("f:xm_tns_fullname", "")
+    tns = meta.get("f:xm_tns_fullname", "")
     tns_str = f"  →  TNS: {tns}" if pd.notna(tns) and tns else ""
-    zphot   = meta.get("f:xm_legacydr8_zphot", "—")
+    zphot = meta.get("f:xm_legacydr8_zphot", "—")
     fig.suptitle(
         f"Fink/LSST  —  diaObjectId {obj_id}{tns_str}"
         f"     RA={meta['r:ra']:.4f}°  Dec={meta['r:dec']:.4f}°"
         f"     zphot={zphot}",
-        fontsize=11, color=TEXT_COL, fontfamily="monospace", y=0.99,
+        fontsize=11,
+        color=TEXT_COL,
+        fontfamily="monospace",
+        y=0.99,
     )
 
     # Row 0: light curves + classifiers
@@ -617,26 +675,30 @@ def plot_tag_grid(
     save : bool
         If True, saves the figure to fink_dataset/overview_{tag}.png.
     """
-    oids  = dataset.get_object_ids(tag)
-    n     = len(oids)
+    oids = dataset.get_object_ids(tag)
+    n = len(oids)
     nrows = int(np.ceil(n / ncols))
 
     fig, axes = plt.subplots(
-        nrows, ncols,
+        nrows,
+        ncols,
         figsize=(ncols * figsize_per_cell[0], nrows * figsize_per_cell[1]),
         facecolor=DARK_BG,
         squeeze=False,
     )
     fig.suptitle(
         f"Tag: {tag}  ({n} objects)",
-        fontsize=12, color=TEXT_COL, fontfamily="monospace", y=1.01,
+        fontsize=12,
+        color=TEXT_COL,
+        fontfamily="monospace",
+        y=1.01,
     )
 
     axes_flat = axes.flatten()
-    zscale    = ZScaleInterval(contrast=0.25)
+    zscale = ZScaleInterval(contrast=0.25)
 
     for i, oid in enumerate(oids):
-        ax  = axes_flat[i]
+        ax = axes_flat[i]
         ax.set_facecolor(PANEL_BG)
         row = dataset.get_meta(int(oid))
 
@@ -648,26 +710,35 @@ def plot_tag_grid(
                 vmin, vmax = zscale.get_limits(img)
             except Exception:
                 vmin, vmax = np.nanpercentile(img, [1, 99])
-            ax.imshow(img, origin="lower", cmap="afmhot",
-                      vmin=vmin, vmax=vmax, aspect="auto",
-                      interpolation="nearest")
+            ax.imshow(
+                img,
+                origin="lower",
+                cmap="afmhot",
+                vmin=vmin,
+                vmax=vmax,
+                aspect="auto",
+                interpolation="nearest",
+            )
             cy, cx = np.array(img.shape) / 2
             ax.plot(cx, cy, "+", color=HIGHLIGHT, ms=10, mew=1.5)
         else:
-            ax.text(0.5, 0.5, "no cutout", ha="center", va="center",
-                    color=MUTED_COL, transform=ax.transAxes)
+            ax.text(0.5, 0.5, "no cutout", ha="center", va="center", color=MUTED_COL, transform=ax.transAxes)
 
         # Metadata overlay
-        snn     = row.get("f:clf_snnSnVsOthers_score", float("nan"))
-        snr     = row.get("r:snr", float("nan"))
-        band    = row.get("r:band", "?")
-        tns     = row.get("f:xm_tns_fullname", "")
+        snn = row.get("f:clf_snnSnVsOthers_score", float("nan"))
+        snr = row.get("r:snr", float("nan"))
+        band = row.get("r:band", "?")
+        tns = row.get("f:xm_tns_fullname", "")
         tns_str = f"\n{tns}" if pd.notna(tns) and tns else ""
         ax.text(
-            0.02, 0.98,
+            0.02,
+            0.98,
             f"#{i}  …{str(oid)[-6:]}\nSNN={snn:.2f}  SNR={snr:.0f}\nband {band}{tns_str}",
-            transform=ax.transAxes, color=TEXT_COL, fontsize=6.5,
-            va="top", fontfamily="monospace",
+            transform=ax.transAxes,
+            color=TEXT_COL,
+            fontsize=6.5,
+            va="top",
+            fontfamily="monospace",
             bbox=dict(facecolor=DARK_BG, alpha=0.7, edgecolor="none", pad=1.5),
         )
 
@@ -696,6 +767,7 @@ def plot_tag_grid(
 # ─────────────────────────────────────────────────────────────────────────────
 # Loop helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def plot_tag_loop(
     dataset: FinkDataset,
@@ -748,7 +820,8 @@ def plot_tag_loop(
             meta = dataset.get_meta(obj_id)
             ax.set_title(
                 f"Flux LC — diaObjectId {obj_id}  |  tag: {meta['fink_tag']}",
-                color=ACCENT, fontsize=10,
+                color=ACCENT,
+                fontsize=10,
             )
             if save:
                 out = dataset.dataset_dir / f"{obj_id}_lc_flux.png"
@@ -760,19 +833,22 @@ def plot_tag_loop(
             meta = dataset.get_meta(obj_id)
             ax.set_title(
                 f"Mag LC — diaObjectId {obj_id}  |  tag: {meta['fink_tag']}",
-                color=ACCENT, fontsize=10,
+                color=ACCENT,
+                fontsize=10,
             )
             if save:
                 out = dataset.dataset_dir / f"{obj_id}_lc_mag.png"
                 fig.savefig(out, dpi=120, bbox_inches="tight", facecolor=DARK_BG)
         elif plot_type == "cutouts":
             cutouts = dataset.get_cutouts(obj_id)
-            meta    = dataset.get_meta(obj_id)
+            meta = dataset.get_meta(obj_id)
             fig, axes = plt.subplots(1, 3, figsize=(15, 5), facecolor=DARK_BG)
             plot_cutouts(cutouts, band=meta.get("r:band", "?"), axes=list(axes))
             fig.suptitle(
                 f"Cutouts — diaObjectId {obj_id}  |  tag: {meta['fink_tag']}",
-                color=TEXT_COL, fontsize=10, fontfamily="monospace",
+                color=TEXT_COL,
+                fontsize=10,
+                fontfamily="monospace",
             )
             if save:
                 out = dataset.dataset_dir / f"{obj_id}_cutouts.png"

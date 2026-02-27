@@ -49,29 +49,31 @@ import requests
 FINK_API = "https://api.lsst.fink-portal.org/api/v1"
 
 # Columns to fetch for each diaSource
-COLUMNS_SOURCES = ",".join([
-    "r:diaObjectId",
-    "r:diaSourceId",
-    "r:midpointMjdTai",
-    "r:band",
-    "r:ra",
-    "r:dec",
-    "r:psfFlux",
-    "r:psfFluxErr",
-    "r:snr",
-    "r:reliability",
-    "r:extendedness",
-    "r:visit",
-    "r:scienceFlux",
-    "r:scienceFluxErr",
-    "r:templateFlux",
-    "r:templateFluxErr",
-    # Fink classifiers (one value per diaSource)
-    "f:clf_snnSnVsOthers_score",
-    "f:clf_earlySNIa_score",
-    "f:clf_cats_class",
-    "f:clf_cats_score",
-])
+COLUMNS_SOURCES = ",".join(
+    [
+        "r:diaObjectId",
+        "r:diaSourceId",
+        "r:midpointMjdTai",
+        "r:band",
+        "r:ra",
+        "r:dec",
+        "r:psfFlux",
+        "r:psfFluxErr",
+        "r:snr",
+        "r:reliability",
+        "r:extendedness",
+        "r:visit",
+        "r:scienceFlux",
+        "r:scienceFluxErr",
+        "r:templateFlux",
+        "r:templateFluxErr",
+        # Fink classifiers (one value per diaSource)
+        "f:clf_snnSnVsOthers_score",
+        "f:clf_earlySNIa_score",
+        "f:clf_cats_class",
+        "f:clf_cats_score",
+    ]
+)
 
 # Delay between API calls to be respectful (seconds)
 SLEEP_BETWEEN_CALLS = 0.2
@@ -79,6 +81,7 @@ SLEEP_BETWEEN_CALLS = 0.2
 # ─────────────────────────────────────────────────────────────────────────────
 # API helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     """
@@ -89,8 +92,8 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     r = requests.get(
         f"{FINK_API}/sources",
         params={
-            "diaObjectId"  : dia_object_id,
-            "columns"      : COLUMNS_SOURCES,
+            "diaObjectId": dia_object_id,
+            "columns": COLUMNS_SOURCES,
             "output-format": "json",
         },
         timeout=60,
@@ -105,8 +108,7 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
-    print(f"  ✓ {len(df)} diaSources found across bands: "
-          f"{sorted(df['r:band'].unique())}")
+    print(f"  ✓ {len(df)} diaSources found across bands: " f"{sorted(df['r:band'].unique())}")
     return df
 
 
@@ -129,8 +131,8 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
     r = requests.get(
         f"{FINK_API}/cutouts",
         params={
-            "diaSourceId"  : dia_source_id,
-            "kind"         : kind,
+            "diaSourceId": dia_source_id,
+            "kind": kind,
             "output-format": "array",
         },
         timeout=30,
@@ -139,7 +141,7 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
         return None
     try:
         data = r.json()
-        key  = list(data.keys())[0]   # e.g. "b:cutoutScience"
+        key = list(data.keys())[0]  # e.g. "b:cutoutScience"
         return np.array(data[key], dtype=np.float32)
     except Exception as e:
         print(f"    ✗ cutout {kind} parse error for diaSourceId={dia_source_id}: {e}")
@@ -168,6 +170,7 @@ def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main download pipeline
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def download_full_cutouts(
     dia_object_id: int,
@@ -211,29 +214,29 @@ def download_full_cutouts(
     print(f"\n  Processing {n_sources} diaSources ...\n")
 
     # ── Step 2: download cutouts for each diaSource ───────────────────────────
-    results = []   # list of dicts for the manifest
+    results = []  # list of dicts for the manifest
 
     for i, row in df_sources.iterrows():
         src_id = int(row["r:diaSourceId"])
-        band   = row["r:band"]
-        mjd    = row["r:midpointMjdTai"]
-        snr    = row.get("r:snr", float("nan"))
+        band = row["r:band"]
+        mjd = row["r:midpointMjdTai"]
+        snr = row.get("r:snr", float("nan"))
 
-        print(f"  [{i+1:3d}/{n_sources}]  diaSourceId={src_id}  "
-              f"band={band}  MJD={mjd:.4f}  SNR={snr:.1f}")
+        print(
+            f"  [{i+1:3d}/{n_sources}]  diaSourceId={src_id}  " f"band={band}  MJD={mjd:.4f}  SNR={snr:.1f}"
+        )
 
         # Check if all 3 cutout files already exist
         paths = {
-            kind: cutout_dir / f"{src_id}_{band}_{kind}.npy"
-            for kind in ["Science", "Template", "Difference"]
+            kind: cutout_dir / f"{src_id}_{band}_{kind}.npy" for kind in ["Science", "Template", "Difference"]
         }
         if skip_existing and all(p.exists() for p in paths.values()):
-            print(f"           → already on disk, skipping")
+            print("           → already on disk, skipping")
             status = "skipped"
         else:
             cutouts = fetch_all_cutouts(src_id)
             if cutouts is None:
-                print(f"           → ✗ cutout download failed")
+                print("           → ✗ cutout download failed")
                 status = "failed"
             else:
                 for kind, arr in cutouts.items():
@@ -242,26 +245,28 @@ def download_full_cutouts(
                 print(f"           → ✓ saved  ({h}×{w} pix)")
                 status = "ok"
 
-        results.append({
-            "r:diaObjectId"             : dia_object_id,
-            "r:diaSourceId"             : src_id,
-            "r:midpointMjdTai"          : mjd,
-            "r:band"                    : band,
-            "r:ra"                      : row.get("r:ra"),
-            "r:dec"                     : row.get("r:dec"),
-            "r:psfFlux"                 : row.get("r:psfFlux"),
-            "r:psfFluxErr"              : row.get("r:psfFluxErr"),
-            "r:snr"                     : snr,
-            "r:reliability"             : row.get("r:reliability"),
-            "r:scienceFlux"             : row.get("r:scienceFlux"),
-            "r:templateFlux"            : row.get("r:templateFlux"),
-            "f:clf_snnSnVsOthers_score" : row.get("f:clf_snnSnVsOthers_score"),
-            "f:clf_earlySNIa_score"     : row.get("f:clf_earlySNIa_score"),
-            "path_Science"              : str(paths["Science"]),
-            "path_Template"             : str(paths["Template"]),
-            "path_Difference"           : str(paths["Difference"]),
-            "status"                    : status,
-        })
+        results.append(
+            {
+                "r:diaObjectId": dia_object_id,
+                "r:diaSourceId": src_id,
+                "r:midpointMjdTai": mjd,
+                "r:band": band,
+                "r:ra": row.get("r:ra"),
+                "r:dec": row.get("r:dec"),
+                "r:psfFlux": row.get("r:psfFlux"),
+                "r:psfFluxErr": row.get("r:psfFluxErr"),
+                "r:snr": snr,
+                "r:reliability": row.get("r:reliability"),
+                "r:scienceFlux": row.get("r:scienceFlux"),
+                "r:templateFlux": row.get("r:templateFlux"),
+                "f:clf_snnSnVsOthers_score": row.get("f:clf_snnSnVsOthers_score"),
+                "f:clf_earlySNIa_score": row.get("f:clf_earlySNIa_score"),
+                "path_Science": str(paths["Science"]),
+                "path_Template": str(paths["Template"]),
+                "path_Difference": str(paths["Difference"]),
+                "status": status,
+            }
+        )
 
     # ── Step 3: save manifest ─────────────────────────────────────────────────
     df_manifest = pd.DataFrame(results)
@@ -269,19 +274,19 @@ def download_full_cutouts(
     df_manifest.to_csv(outdir / "manifest.csv", index=False)
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    n_ok      = (df_manifest["status"] == "ok").sum()
-    n_skip    = (df_manifest["status"] == "skipped").sum()
-    n_fail    = (df_manifest["status"] == "failed").sum()
+    n_ok = (df_manifest["status"] == "ok").sum()
+    n_skip = (df_manifest["status"] == "skipped").sum()
+    n_fail = (df_manifest["status"] == "failed").sum()
     print(f"\n{'='*60}")
-    print(f"Done.")
+    print("Done.")
     print(f"  ✓ Downloaded : {n_ok}")
     print(f"  → Skipped    : {n_skip}")
     print(f"  ✗ Failed     : {n_fail}")
     print(f"  Total        : {n_sources}")
-    print(f"\nBands observed:")
+    print("\nBands observed:")
     for band, grp in df_manifest.groupby("r:band"):
         print(f"  {band} : {len(grp)} diaSources")
-    print(f"\nManifest saved:")
+    print("\nManifest saved:")
     print(f"  {outdir / 'manifest.parquet'}")
     print(f"  {outdir / 'manifest.csv'}")
     print(f"{'='*60}")
@@ -294,19 +299,22 @@ def download_full_cutouts(
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Download all cutouts for a single LSST diaObjectId."
-    )
+    parser = argparse.ArgumentParser(description="Download all cutouts for a single LSST diaObjectId.")
     parser.add_argument(
-        "--obj_id", type=int, required=True,
+        "--obj_id",
+        type=int,
+        required=True,
         help="diaObjectId to download (e.g. 170032915988086813)",
     )
     parser.add_argument(
-        "--outdir", type=str, default=None,
+        "--outdir",
+        type=str,
+        default=None,
         help="Output directory (default: ./fullcutouts_{obj_id}/)",
     )
     parser.add_argument(
-        "--no_skip", action="store_true",
+        "--no_skip",
+        action="store_true",
         help="Re-download even if cutout files already exist",
     )
     args = parser.parse_args()
