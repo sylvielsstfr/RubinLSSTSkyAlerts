@@ -60,6 +60,7 @@ mcp = FastMCP("fink_lsst_mcp")
 # Helpers HTTP
 # ─────────────────────────────────────────────────────────────
 
+
 async def _post(endpoint: str, payload: dict) -> dict | list:
     """POST vers l'API Fink en éliminant les valeurs None."""
     clean = {k: v for k, v in payload.items() if v is not None}
@@ -111,109 +112,259 @@ def _handle_error(e: Exception) -> str:
 # Modèles Pydantic
 # ─────────────────────────────────────────────────────────────
 
+
 class SourcesInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    diaObjectId: str = Field(..., description="Identifiant numérique Rubin diaObjectId (STRING), ou liste séparée par des virgules. Ex: '169298433216610349'. Obtenir via fink_resolver ou fink_conesearch.", min_length=1)
-    midpointMjdTai: float | None = Field(default=None, description="Si fourni, ne retourne que la source à cette date MJD. Ne fonctionne pas si diaObjectId est une liste.")
-    columns: str | None = Field(default=None, description="Colonnes à retourner (préfixe 'r:'). Ex: 'r:midpointMjdTai,r:psfFlux,r:band,r:ra,r:dec'. Par défaut toutes (lent).")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    diaObjectId: str = Field(
+        ...,
+        description="Identifiant numérique Rubin diaObjectId (STRING), ou liste séparée par des virgules. Ex: '169298433216610349'. Obtenir via fink_resolver ou fink_conesearch.",
+        min_length=1,
+    )
+    midpointMjdTai: float | None = Field(
+        default=None,
+        description="Si fourni, ne retourne que la source à cette date MJD. Ne fonctionne pas si diaObjectId est une liste.",
+    )
+    columns: str | None = Field(
+        default=None,
+        description="Colonnes à retourner (préfixe 'r:'). Ex: 'r:midpointMjdTai,r:psfFlux,r:band,r:ra,r:dec'. Par défaut toutes (lent).",
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class ObjectsInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    diaObjectId: str = Field(..., description="Identifiant numérique Rubin diaObjectId, ou liste séparée par des virgules. Ex: '396895411240977'. Retourne données agrégées (pas la courbe de lumière — utiliser fink_get_sources pour ça).", min_length=1)
-    columns: str | None = Field(default=None, description="Colonnes à retourner (préfixe 'i:'). Ex: 'i:firstDiaSourceMjdTai,i:nDiaSources,i:g_psfFluxMax'.")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    diaObjectId: str = Field(
+        ...,
+        description="Identifiant numérique Rubin diaObjectId, ou liste séparée par des virgules. Ex: '396895411240977'. Retourne données agrégées (pas la courbe de lumière — utiliser fink_get_sources pour ça).",
+        min_length=1,
+    )
+    columns: str | None = Field(
+        default=None,
+        description="Colonnes à retourner (préfixe 'i:'). Ex: 'i:firstDiaSourceMjdTai,i:nDiaSources,i:g_psfFluxMax'.",
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class FpInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    diaObjectId: str = Field(..., description="Identifiant numérique Rubin diaObjectId (STRING), ou liste séparée par des virgules.", min_length=1)
-    columns: str | None = Field(default=None, description="Colonnes à retourner. Ex: 'r:midpointMjdTai,r:psfFlux,r:band'. Par défaut toutes (lent).")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    diaObjectId: str = Field(
+        ...,
+        description="Identifiant numérique Rubin diaObjectId (STRING), ou liste séparée par des virgules.",
+        min_length=1,
+    )
+    columns: str | None = Field(
+        default=None,
+        description="Colonnes à retourner. Ex: 'r:midpointMjdTai,r:psfFlux,r:band'. Par défaut toutes (lent).",
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class ConeSearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    ra: float = Field(..., description="Ascension droite en degrés décimaux (J2000). Ex: 7.893627", ge=0.0, le=360.0)
-    dec: float = Field(..., description="Déclinaison en degrés décimaux (J2000). Ex: -44.771556", ge=-90.0, le=90.0)
-    radius: float = Field(..., description="Rayon de recherche en arcsec. Maximum : 18000 arcsec (5°). Ex: 10.0", gt=0.0, le=18000.0)
-    n: int | None = Field(default=None, description="Nombre maximum d'alertes à retourner. Défaut : 1000.", ge=1)
-    startdate: str | None = Field(default=None, description="Date de début UTC (iso, jd, ou MJD). Restreint aux objets dont la PREMIÈRE détection est dans cet intervalle. Ex: '2025-09-05 12:30:00'.")
-    stopdate: str | None = Field(default=None, description="Date de fin UTC (iso, jd, ou MJD). Défaut : maintenant.")
-    window: float | None = Field(default=None, description="Fenêtre temporelle en jours depuis aujourd'hui (alternative à stopdate).", gt=0.0)
-    columns: str | None = Field(default=None, description="Colonnes à retourner. Ex: 'i:midpointMjdTai,i:psfFlux,i:band'.")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    ra: float = Field(
+        ..., description="Ascension droite en degrés décimaux (J2000). Ex: 7.893627", ge=0.0, le=360.0
+    )
+    dec: float = Field(
+        ..., description="Déclinaison en degrés décimaux (J2000). Ex: -44.771556", ge=-90.0, le=90.0
+    )
+    radius: float = Field(
+        ...,
+        description="Rayon de recherche en arcsec. Maximum : 18000 arcsec (5°). Ex: 10.0",
+        gt=0.0,
+        le=18000.0,
+    )
+    n: int | None = Field(
+        default=None, description="Nombre maximum d'alertes à retourner. Défaut : 1000.", ge=1
+    )
+    startdate: str | None = Field(
+        default=None,
+        description="Date de début UTC (iso, jd, ou MJD). Restreint aux objets dont la PREMIÈRE détection est dans cet intervalle. Ex: '2025-09-05 12:30:00'.",
+    )
+    stopdate: str | None = Field(
+        default=None, description="Date de fin UTC (iso, jd, ou MJD). Défaut : maintenant."
+    )
+    window: float | None = Field(
+        default=None,
+        description="Fenêtre temporelle en jours depuis aujourd'hui (alternative à stopdate).",
+        gt=0.0,
+    )
+    columns: str | None = Field(
+        default=None, description="Colonnes à retourner. Ex: 'i:midpointMjdTai,i:psfFlux,i:band'."
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class CutoutsInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    diaSourceId: str = Field(..., description="Identifiant diaSource (entier long en STRING). Ex: '169298437355340113'. Obtenir depuis fink_get_sources (colonne 'r:diaSourceId').", min_length=1)
-    kind: str = Field(default="Science", description="Type de vignette : 'Science', 'Template', 'Difference', ou 'All' (seulement pour output-format=array).")
-    output_format: str = Field(default="PNG", description="Format de sortie : 'PNG' (défaut, base64), 'FITS', 'array'.")
-    stretch: str | None = Field(default=None, description="Étirement : 'sigmoid' (défaut), 'linear', 'sqrt', 'power', 'log'.")
-    colormap: str | None = Field(default=None, description="Colormap matplotlib. Ex: 'Blues', 'viridis'. Défaut : niveaux de gris.")
-    pmin: float | None = Field(default=None, description="Percentile minimum pour le niveau de coupe. Défaut : 0.5. Sans effet pour sigmoid.")
-    pmax: float | None = Field(default=None, description="Percentile maximum pour le niveau de coupe. Défaut : 99.5. Sans effet pour sigmoid.")
-    convolution_kernel: str | None = Field(default=None, description="Noyau de convolution : 'gauss' ou 'box'. Par défaut aucune convolution.")
+    diaSourceId: str = Field(
+        ...,
+        description="Identifiant diaSource (entier long en STRING). Ex: '169298437355340113'. Obtenir depuis fink_get_sources (colonne 'r:diaSourceId').",
+        min_length=1,
+    )
+    kind: str = Field(
+        default="Science",
+        description="Type de vignette : 'Science', 'Template', 'Difference', ou 'All' (seulement pour output-format=array).",
+    )
+    output_format: str = Field(
+        default="PNG", description="Format de sortie : 'PNG' (défaut, base64), 'FITS', 'array'."
+    )
+    stretch: str | None = Field(
+        default=None, description="Étirement : 'sigmoid' (défaut), 'linear', 'sqrt', 'power', 'log'."
+    )
+    colormap: str | None = Field(
+        default=None, description="Colormap matplotlib. Ex: 'Blues', 'viridis'. Défaut : niveaux de gris."
+    )
+    pmin: float | None = Field(
+        default=None,
+        description="Percentile minimum pour le niveau de coupe. Défaut : 0.5. Sans effet pour sigmoid.",
+    )
+    pmax: float | None = Field(
+        default=None,
+        description="Percentile maximum pour le niveau de coupe. Défaut : 99.5. Sans effet pour sigmoid.",
+    )
+    convolution_kernel: str | None = Field(
+        default=None, description="Noyau de convolution : 'gauss' ou 'box'. Par défaut aucune convolution."
+    )
 
 
 class SSOInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    n_or_d: str = Field(..., description="Numéro IAU ou désignation provisoire du SSO. Forme packed acceptée (ex: 'K15W16Q'). Ex: '8467' (astéroïde), '10P' (comète), '2010JO69', 'C/2020V2'. Liste séparée par virgules acceptée.", min_length=1)
-    withEphem: bool = Field(default=False, description="Attacher les éphémérides Miriade/IMCCE comme colonnes supplémentaires.")
-    withResiduals: bool = Field(default=False, description="Retourner les résidus obs-modèle (sHG1G2). Un seul objet seulement.")
-    columns: str | None = Field(default=None, description="Colonnes à retourner. Ex: 'r:midpointMjdTai,r:scienceFlux,r:band,r:ra,r:dec'.")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    n_or_d: str = Field(
+        ...,
+        description="Numéro IAU ou désignation provisoire du SSO. Forme packed acceptée (ex: 'K15W16Q'). Ex: '8467' (astéroïde), '10P' (comète), '2010JO69', 'C/2020V2'. Liste séparée par virgules acceptée.",
+        min_length=1,
+    )
+    withEphem: bool = Field(
+        default=False, description="Attacher les éphémérides Miriade/IMCCE comme colonnes supplémentaires."
+    )
+    withResiduals: bool = Field(
+        default=False, description="Retourner les résidus obs-modèle (sHG1G2). Un seul objet seulement."
+    )
+    columns: str | None = Field(
+        default=None,
+        description="Colonnes à retourner. Ex: 'r:midpointMjdTai,r:scienceFlux,r:band,r:ra,r:dec'.",
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class SchemaInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    endpoint: str = Field(..., description="Nom de l'endpoint dont on veut le schéma. Valeurs valides : 'sources', 'objects', 'fp', 'conesearch', 'sso', 'tags', 'statistics'.", min_length=1)
-    major_version: int | None = Field(default=None, description="Version majeure LSST. Défaut : dernière version.")
-    minor_version: int | None = Field(default=None, description="Version mineure LSST. Défaut : dernière version.")
+    endpoint: str = Field(
+        ...,
+        description="Nom de l'endpoint dont on veut le schéma. Valeurs valides : 'sources', 'objects', 'fp', 'conesearch', 'sso', 'tags', 'statistics'.",
+        min_length=1,
+    )
+    major_version: int | None = Field(
+        default=None, description="Version majeure LSST. Défaut : dernière version."
+    )
+    minor_version: int | None = Field(
+        default=None, description="Version mineure LSST. Défaut : dernière version."
+    )
 
 
 class StatisticsInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    date: str = Field(..., description="Date d'observation : 'YYYYMMDD' (nuit), 'YYYYMM' (mois), 'YYYY' (année), ou '' (tout). Ex: '20260120', '202601', '2026', ''.")
-    columns: str | None = Field(default=None, description="Colonnes à retourner. Ex: 'f:alerts,f:night'. Par défaut toutes.")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    date: str = Field(
+        ...,
+        description="Date d'observation : 'YYYYMMDD' (nuit), 'YYYYMM' (mois), 'YYYY' (année), ou '' (tout). Ex: '20260120', '202601', '2026', ''.",
+    )
+    columns: str | None = Field(
+        default=None, description="Colonnes à retourner. Ex: 'f:alerts,f:night'. Par défaut toutes."
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class TagsInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    tag: str = Field(..., description="Tag Fink de classification. Voir fink_list_classes pour les tags disponibles. Ex: 'cataloged', 'SN candidate', 'kilonova candidate'.", min_length=1)
+    tag: str = Field(
+        ...,
+        description="Tag Fink de classification. Voir fink_list_classes pour les tags disponibles. Ex: 'cataloged', 'SN candidate', 'kilonova candidate'.",
+        min_length=1,
+    )
     n: int | None = Field(default=100, description="Nombre d'alertes à retourner. Défaut : 100.", ge=1)
-    startdate: str | None = Field(default=None, description="Date de début UTC (iso, jd, ou MJD). Ex: '2026-01-01 00:00:00'.")
-    stopdate: str | None = Field(default=None, description="Date de fin UTC (iso, jd, ou MJD). Défaut : maintenant.")
-    columns: str | None = Field(default=None, description="Colonnes à retourner. Ex: 'r:diaObjectId,r:scienceFlux,r:midpointMjdTai'.")
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    startdate: str | None = Field(
+        default=None, description="Date de début UTC (iso, jd, ou MJD). Ex: '2026-01-01 00:00:00'."
+    )
+    stopdate: str | None = Field(
+        default=None, description="Date de fin UTC (iso, jd, ou MJD). Défaut : maintenant."
+    )
+    columns: str | None = Field(
+        default=None, description="Colonnes à retourner. Ex: 'r:diaObjectId,r:scienceFlux,r:midpointMjdTai'."
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class ResolverInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    resolver: str = Field(..., description="Resolver : 'simbad' (étoiles/galaxies), 'ssodnet' (Système Solaire), 'tns' (Transient Name Server).", min_length=1)
-    name_or_id: str = Field(..., description="Nom ou ID à résoudre. Si reverse=True, fournir un diaObjectId LSST. Ex: 'SN 2024abtt' (TNS), 'NGC 1365' (Simbad), '8467' (SSodnet).", min_length=1)
-    reverse: bool = Field(default=False, description="Si True, résout un diaObjectId LSST en nom astronomique.")
+    resolver: str = Field(
+        ...,
+        description="Resolver : 'simbad' (étoiles/galaxies), 'ssodnet' (Système Solaire), 'tns' (Transient Name Server).",
+        min_length=1,
+    )
+    name_or_id: str = Field(
+        ...,
+        description="Nom ou ID à résoudre. Si reverse=True, fournir un diaObjectId LSST. Ex: 'SN 2024abtt' (TNS), 'NGC 1365' (Simbad), '8467' (SSodnet).",
+        min_length=1,
+    )
+    reverse: bool = Field(
+        default=False, description="Si True, résout un diaObjectId LSST en nom astronomique."
+    )
     nmax: int | None = Field(default=10, description="Nombre maximum de correspondances. Défaut : 10.", ge=1)
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 class SkymapInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    event_name: str | None = Field(default=None, description="Nom GraceDB de l'événement GW. Ex: 'S251112cm'. Incompatible avec 'file'.")
-    credible_level: float = Field(..., description="Seuil de région de crédibilité GW [0.0, 1.0]. Ex: 0.90 pour la région à 90% de probabilité.", ge=0.0, le=1.0)
-    n_day_before: float | None = Field(default=1.0, description="Jours à chercher AVANT l'événement. Défaut : 1, max : 7.", ge=0.0, le=7.0)
-    n_day_after: float | None = Field(default=6.0, description="Jours à chercher APRÈS l'événement. Défaut : 6, max : 14.", ge=0.0, le=14.0)
-    output_format: str = Field(default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'.")
+    event_name: str | None = Field(
+        default=None, description="Nom GraceDB de l'événement GW. Ex: 'S251112cm'. Incompatible avec 'file'."
+    )
+    credible_level: float = Field(
+        ...,
+        description="Seuil de région de crédibilité GW [0.0, 1.0]. Ex: 0.90 pour la région à 90% de probabilité.",
+        ge=0.0,
+        le=1.0,
+    )
+    n_day_before: float | None = Field(
+        default=1.0, description="Jours à chercher AVANT l'événement. Défaut : 1, max : 7.", ge=0.0, le=7.0
+    )
+    n_day_after: float | None = Field(
+        default=6.0, description="Jours à chercher APRÈS l'événement. Défaut : 6, max : 14.", ge=0.0, le=14.0
+    )
+    output_format: str = Field(
+        default="json", description="Format de sortie : 'json', 'csv', 'parquet', 'votable'."
+    )
 
 
 # ─────────────────────────────────────────────────────────────
 # Outils MCP
 # ─────────────────────────────────────────────────────────────
 
-@mcp.tool(name="fink_get_sources", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+
+@mcp.tool(
+    name="fink_get_sources",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_sources(params: SourcesInput) -> str:
     """
     Récupère la courbe de lumière détaillée (diaSources) pour un diaObjectId LSST.
@@ -232,13 +383,29 @@ async def fink_get_sources(params: SourcesInput) -> str:
 
     """
     try:
-        data = await _post("sources", {"diaObjectId": params.diaObjectId, "midpointMjdTai": params.midpointMjdTai, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "sources",
+            {
+                "diaObjectId": params.diaObjectId,
+                "midpointMjdTai": params.midpointMjdTai,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_objects", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_objects",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_objects(params: ObjectsInput) -> str:
     """
     Récupère les données agrégées (diaObject) pour un diaObjectId LSST.
@@ -257,13 +424,28 @@ async def fink_get_objects(params: ObjectsInput) -> str:
 
     """
     try:
-        data = await _post("objects", {"diaObjectId": params.diaObjectId, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "objects",
+            {
+                "diaObjectId": params.diaObjectId,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_forced_photometry", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_forced_photometry",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_forced_photometry(params: FpInput) -> str:
     """
     Récupère la photométrie forcée pour un diaObjectId LSST.
@@ -280,13 +462,28 @@ async def fink_get_forced_photometry(params: FpInput) -> str:
 
     """
     try:
-        data = await _post("fp", {"diaObjectId": params.diaObjectId, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "fp",
+            {
+                "diaObjectId": params.diaObjectId,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_conesearch", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_conesearch",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_conesearch(params: ConeSearchInput) -> str:
     """
     Recherche spatiale (cone search) dans Fink/LSST autour d'une position céleste.
@@ -306,13 +503,34 @@ async def fink_conesearch(params: ConeSearchInput) -> str:
 
     """
     try:
-        data = await _post("conesearch", {"ra": params.ra, "dec": params.dec, "radius": params.radius, "n": params.n, "startdate": params.startdate, "stopdate": params.stopdate, "window": params.window, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "conesearch",
+            {
+                "ra": params.ra,
+                "dec": params.dec,
+                "radius": params.radius,
+                "n": params.n,
+                "startdate": params.startdate,
+                "stopdate": params.stopdate,
+                "window": params.window,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_cutout", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_cutout",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_cutout(params: CutoutsInput) -> str:
     """
     Récupère une vignette d'image pour une alerte LSST (diaSource).
@@ -329,13 +547,33 @@ async def fink_get_cutout(params: CutoutsInput) -> str:
 
     """
     try:
-        data = await _post("cutouts", {"diaSourceId": params.diaSourceId, "kind": params.kind, "output-format": params.output_format, "stretch": params.stretch, "colormap": params.colormap, "pmin": params.pmin, "pmax": params.pmax, "convolution_kernel": params.convolution_kernel})
+        data = await _post(
+            "cutouts",
+            {
+                "diaSourceId": params.diaSourceId,
+                "kind": params.kind,
+                "output-format": params.output_format,
+                "stretch": params.stretch,
+                "colormap": params.colormap,
+                "pmin": params.pmin,
+                "pmax": params.pmax,
+                "convolution_kernel": params.convolution_kernel,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_sso", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_sso",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_sso(params: SSOInput) -> str:
     """
     Récupère les observations Fink/LSST pour un objet du Système Solaire (SSO).
@@ -352,13 +590,30 @@ async def fink_get_sso(params: SSOInput) -> str:
 
     """
     try:
-        data = await _post("sso", {"n_or_d": params.n_or_d, "withEphem": params.withEphem, "withResiduals": params.withResiduals, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "sso",
+            {
+                "n_or_d": params.n_or_d,
+                "withEphem": params.withEphem,
+                "withResiduals": params.withResiduals,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_schema", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_schema",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_schema(params: SchemaInput) -> str:
     """
     Récupère le schéma des colonnes disponibles pour un endpoint Fink/LSST.
@@ -377,13 +632,28 @@ async def fink_get_schema(params: SchemaInput) -> str:
 
     """
     try:
-        data = await _post("schema", {"endpoint": params.endpoint, "major_version": params.major_version, "minor_version": params.minor_version})
+        data = await _post(
+            "schema",
+            {
+                "endpoint": params.endpoint,
+                "major_version": params.major_version,
+                "minor_version": params.minor_version,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_statistics", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_statistics",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_statistics(params: StatisticsInput) -> str:
     """
     Récupère les statistiques Fink/LSST pour une période donnée.
@@ -400,13 +670,24 @@ async def fink_get_statistics(params: StatisticsInput) -> str:
 
     """
     try:
-        data = await _post("statistics", {"date": params.date, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "statistics",
+            {"date": params.date, "columns": params.columns, "output-format": params.output_format},
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_by_tag", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_by_tag",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_by_tag(params: TagsInput) -> str:
     """
     Récupère les N dernières alertes Fink/LSST filtrées par tag de classification.
@@ -423,13 +704,31 @@ async def fink_get_by_tag(params: TagsInput) -> str:
 
     """
     try:
-        data = await _post("tags", {"tag": params.tag, "n": params.n, "startdate": params.startdate, "stopdate": params.stopdate, "columns": params.columns, "output-format": params.output_format})
+        data = await _post(
+            "tags",
+            {
+                "tag": params.tag,
+                "n": params.n,
+                "startdate": params.startdate,
+                "stopdate": params.stopdate,
+                "columns": params.columns,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_resolver", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_resolver",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_resolver(params: ResolverInput) -> str:
     """
     Résout un nom astronomique en diaObjectId LSST, ou l'inverse.
@@ -448,13 +747,30 @@ async def fink_resolver(params: ResolverInput) -> str:
 
     """
     try:
-        data = await _post("resolver", {"resolver": params.resolver, "name_or_id": params.name_or_id, "reverse": params.reverse, "nmax": params.nmax, "output-format": params.output_format})
+        data = await _post(
+            "resolver",
+            {
+                "resolver": params.resolver,
+                "name_or_id": params.name_or_id,
+                "reverse": params.reverse,
+                "nmax": params.nmax,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_skymap_gw", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_skymap_gw",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_skymap_gw(params: SkymapInput) -> str:
     """
     Cherche les alertes Fink/LSST dans la région de probabilité d'une onde gravitationnelle.
@@ -473,13 +789,30 @@ async def fink_skymap_gw(params: SkymapInput) -> str:
 
     """
     try:
-        data = await _post("skymap", {"event_name": params.event_name, "credible_level": params.credible_level, "n_day_before": params.n_day_before, "n_day_after": params.n_day_after, "output-format": params.output_format})
+        data = await _post(
+            "skymap",
+            {
+                "event_name": params.event_name,
+                "credible_level": params.credible_level,
+                "n_day_before": params.n_day_before,
+                "n_day_after": params.n_day_after,
+                "output-format": params.output_format,
+            },
+        )
         return _fmt(data)
     except Exception as e:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_list_classes", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_list_classes",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_list_classes() -> str:
     """
     Liste tous les tags/classes de classification disponibles dans Fink/LSST.
@@ -498,7 +831,15 @@ async def fink_list_classes() -> str:
         return _handle_error(e)
 
 
-@mcp.tool(name="fink_get_blocks", annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
+@mcp.tool(
+    name="fink_get_blocks",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
 async def fink_get_blocks() -> str:
     """
     Récupère la définition des blocs de données Fink/LSST.
@@ -524,7 +865,3 @@ async def fink_get_blocks() -> str:
 
 if __name__ == "__main__":
     mcp.run()
-
-
-
-

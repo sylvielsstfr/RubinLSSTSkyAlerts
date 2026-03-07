@@ -23,7 +23,7 @@ Dependencies
     pip install astropy matplotlib numpy pandas astroquery
 
 Author : dagoret
-Date   : 2026-02
+Date   : 2026-03-06
 """
 
 from __future__ import annotations
@@ -244,6 +244,7 @@ def fetch_hips_image(
     hips_survey: str = "CDS/P/DSS2/color",
     width_px: int = 1024,
     height_px: int = 768,
+    projection: str = "TAN",
     verbose: bool = True,
 ) -> np.ndarray | None:
     """
@@ -263,6 +264,7 @@ def fetch_hips_image(
     fov_deg : float                 Field of view in degrees.
     hips_survey : str               HiPS survey ID.
     width_px, height_px : int       Output image size in pixels.
+    projection : str                WCS projection code (TAN, CAR, MOL, ...).
     verbose : bool                  Print progress / error messages.
 
     Returns
@@ -285,13 +287,18 @@ def fetch_hips_image(
             fov        = fov_deg * u.deg,
             width      = width_px,
             height     = height_px,
-            projection = "TAN",
+            projection = projection,
             format     = "fits",
         )
         # result can be an HDUList or a single HDU depending on version
         hdu = result[0] if hasattr(result, "__getitem__") else result
         if hdu.data is not None and hdu.data.size > 0:
             _vprint(f"  → HDU data shape: {hdu.data.shape}  dtype: {hdu.data.dtype}")
+            for kw in ['CRVAL1','CRVAL2','CRPIX1','CRPIX2',
+                       'CDELT1','CDELT2','CTYPE1','CTYPE2',
+                       'NAXIS1','NAXIS2']:
+                if kw in hdu.header:
+                    _vprint(f"  FITS header  {kw} = {hdu.header[kw]}")
             return _normalise_image_cube(hdu.data)
         _vprint("  → HDU data is None or empty")
     except Exception as exc:
@@ -310,14 +317,12 @@ def fetch_hips_image(
             fov        = fov_deg * u.deg,
             width      = width_px,
             height     = height_px,
-            projection = "TAN",
+            projection = projection,
             format     = "jpg",
         )
-        # astroquery ≥ 0.4.7 returns raw bytes for jpg
         if isinstance(result, (bytes, bytearray)):
             img = np.array(Image.open(io.BytesIO(result)), dtype=np.float32) / 255.0
         elif hasattr(result, "data") and result.data is not None:
-            # Older versions return an HDU with data already decoded
             img = result.data.astype(np.float32)
             if img.max() > 1.0:
                 img /= 255.0
@@ -332,7 +337,7 @@ def fetch_hips_image(
     except Exception as exc:
         _vprint(f"  → Strategy 2 failed: {exc}")
 
-    # ── Strategy 3: direct HTTP, new CDS server ───────────────────────────────
+    # ── Strategy 3/4: direct HTTP ─────────────────────────────────────────────
     for base_url in [
         "https://alasky.cds.unistra.fr/hips-image-services/hips2fits",
         "https://alasky.u-strasbg.fr/hips-image-services/hips2fits",
@@ -348,7 +353,7 @@ def fetch_hips_image(
                 "fov"       : fov_deg,
                 "width"     : width_px,
                 "height"    : height_px,
-                "projection": "TAN",
+                "projection": projection,
                 "format"    : "fits",
             }
             resp = requests.get(base_url, params=params, timeout=60)
@@ -356,7 +361,6 @@ def fetch_hips_image(
             _vprint(f"  → HTTP {resp.status_code}  "
                     f"Content-Type: {resp.headers.get('Content-Type', '?')}  "
                     f"bytes: {len(resp.content)}")
-            # Parse FITS from bytes
             from astropy.io import fits as afits
             with afits.open(io.BytesIO(resp.content)) as hdul:
                 data = hdul[0].data
@@ -385,11 +389,6 @@ def overlay_hips_background(
 ) -> bool:
     """
     Fetch a HiPS image and overlay it on *ax* as an imshow background.
-
-    The image is displayed with ``origin='upper'`` and
-    ``extent=[ra_max, ra_min, dec_min, dec_max]`` so that RA increases
-    to the left (astronomical convention).
-
     Returns True on success.
     """
     ra_c  = 0.5 * (ra_min + ra_max)
@@ -408,8 +407,6 @@ def overlay_hips_background(
     ax.imshow(
         img,
         origin="upper",
-        # extent: [left=ra_max, right=ra_min, bottom=dec_min, top=dec_max]
-        # left > right so that RA grows to the left
         extent=[ra_max, ra_min, dec_min, dec_max],
         aspect="auto",
         zorder=0,
@@ -433,16 +430,7 @@ def draw_radec_grid(
     dec_step: float = 5.0,
     ra_unit: str = "hms",
 ) -> None:
-    """
-    Draw a clearly visible RA/Dec coordinate grid on a rectangular axes.
-
-    Each grid line is drawn as a solid semi-transparent line.
-    Labels are placed on the bottom axis (RA) and left axis (Dec).
-    Additional inline labels are drawn inside the plot area at the
-    top (RA) and right (Dec) so the grid is readable even when the
-    plot limits don't align with a round tick value.
-    """
-    # ── Compute tick positions ────────────────────────────────────────────────
+    """Draw a clearly visible RA/Dec coordinate grid on a rectangular axes."""
     ra_start  = np.ceil(ra_min   / ra_step)  * ra_step
     ra_end    = np.floor(ra_max  / ra_step)  * ra_step
     ra_ticks  = np.arange(ra_start,  ra_end  + ra_step  * 0.01, ra_step)
@@ -451,18 +439,13 @@ def draw_radec_grid(
     dec_end   = np.floor(dec_max / dec_step) * dec_step
     dec_ticks = np.arange(dec_start, dec_end + dec_step * 0.01, dec_step)
 
-    # ── Draw RA grid lines ────────────────────────────────────────────────────
     for ra_t in ra_ticks:
         ax.axvline(ra_t, color=GRID_COL, lw=0.9, ls="-", alpha=0.70, zorder=2)
-
-    # ── Draw Dec grid lines ───────────────────────────────────────────────────
     for dec_t in dec_ticks:
         ax.axhline(dec_t, color=GRID_COL, lw=0.9, ls="-", alpha=0.70, zorder=2)
 
-    # ── Axis ticks + formatters ───────────────────────────────────────────────
     ax.set_xticks(ra_ticks)
     ax.set_yticks(dec_ticks)
-
     ax.xaxis.set_major_formatter(
         _RAFormatter() if ra_unit == "hms" else _RAFormatterDeg()
     )
@@ -481,7 +464,6 @@ def _draw_galactic_rect(
     ax, ra_min, ra_max, dec_min, dec_max,
     show_plane=True, show_band=False, band_b=15.0,
 ):
-    """Galactic plane / band on a rectangular axes."""
     def _plot_curve(ra_arr, dec_arr, col, lw, ls, alpha, zo):
         for ra_s, dec_s in _split_segments(ra_arr, dec_arr):
             m = ((ra_s >= ra_min) & (ra_s <= ra_max) &
@@ -508,7 +490,6 @@ def _draw_galactic_rect(
 
 
 def _draw_ddf_rect(ax, ra_min, ra_max, dec_min, dec_max):
-    """Mark Rubin DDFs on a rectangular axes."""
     for ddf in RUBIN_DDF:
         if ra_min <= ddf["ra"] <= ra_max and dec_min <= ddf["dec"] <= dec_max:
             ax.scatter(ddf["ra"], ddf["dec"],
@@ -560,7 +541,7 @@ def _build_legend(ax, show_ddf, show_plane, show_band=False, band_b=15.0):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# plot_skymap_rect  — rectangular (RA, Dec) projection
+# plot_skymap_rect
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_skymap_rect(
@@ -588,53 +569,6 @@ def plot_skymap_rect(
     ax: plt.Axes | None = None,
     tags_to_show: list[str] | None = None,
 ) -> tuple[plt.Figure, plt.Axes]:
-    """
-    Rectangular (RA, Dec) sky map.  RA increases to the left.
-
-    Parameters
-    ----------
-    catalog : pd.DataFrame
-        One row per diaObjectId with columns r:ra, r:dec, fink_tag.
-    ra_min, ra_max, dec_min, dec_max : float, optional
-        Plot limits in degrees.  Auto from data if None.
-    marker_size, marker_alpha : float
-        Scatter point appearance.
-    show_galactic_plane : bool
-        Overlay galactic plane (b = 0).
-    show_galactic_band : bool
-        Overlay galactic latitude lines at ±galactic_band_b.
-    galactic_band_b : float
-        |b| value for the galactic band (degrees).
-    show_ddf : bool
-        Mark Rubin LSST Deep Drilling Fields.
-    show_grid : bool
-        Draw RA/Dec coordinate grid with tick labels.
-    ra_unit : str
-        'hms' → HH:MM labels on RA axis, 'deg' → degree labels.
-    ra_grid_step, dec_grid_step : float
-        Grid spacing in degrees.
-    sky_background : bool
-        Fetch and display a real sky image (requires astroquery + network).
-    hips_survey : str
-        HiPS survey identifier (e.g. 'CDS/P/DSS2/color').
-    hips_alpha : float
-        Opacity of the sky image layer.
-    hips_verbose : bool
-        Print diagnostic messages during HiPS download.
-    title : str, optional
-        Figure title (auto-generated if None).
-    figsize : tuple
-        Figure size in inches (ignored if ax is provided).
-    ax : plt.Axes, optional
-        Draw on an existing Axes.
-    tags_to_show : list[str], optional
-        Restrict to these Fink tags (None = all).
-
-    Returns
-    -------
-    (fig, ax)
-    """
-    # ── Axes ──────────────────────────────────────────────────────────────────
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize, facecolor=DARK_BG)
         fig.patch.set_facecolor(DARK_BG)
@@ -642,45 +576,36 @@ def plot_skymap_rect(
         fig = ax.get_figure()
     ax.set_facecolor(PANEL_BG)
 
-    # ── Bounds ────────────────────────────────────────────────────────────────
     mrg_ra, mrg_dec = 2.0, 1.5
     if ra_min  is None: ra_min  = catalog["r:ra"].min()  - mrg_ra
     if ra_max  is None: ra_max  = catalog["r:ra"].max()  + mrg_ra
     if dec_min is None: dec_min = catalog["r:dec"].min() - mrg_dec
     if dec_max is None: dec_max = catalog["r:dec"].max() + mrg_dec
 
-    # ── Sky background (z=0, drawn first) ────────────────────────────────────
     if sky_background:
         ok = overlay_hips_background(
             ax, ra_min, ra_max, dec_min, dec_max,
-            hips_survey=hips_survey,
-            alpha=hips_alpha,
-            verbose=hips_verbose,
+            hips_survey=hips_survey, alpha=hips_alpha, verbose=hips_verbose,
         )
         if not ok:
             print("[HiPS] Background not available — plain background kept.")
 
-    # ── Coordinate grid (z=2) ─────────────────────────────────────────────────
     if show_grid:
         draw_radec_grid(ax, ra_min, ra_max, dec_min, dec_max,
                         ra_step=ra_grid_step, dec_step=dec_grid_step,
                         ra_unit=ra_unit)
 
-    # ── Galactic overlays (z=7-8) ─────────────────────────────────────────────
     _draw_galactic_rect(ax, ra_min, ra_max, dec_min, dec_max,
                         show_plane=show_galactic_plane,
                         show_band=show_galactic_band,
                         band_b=galactic_band_b)
 
-    # ── DDFs (z=11) ───────────────────────────────────────────────────────────
     if show_ddf:
         _draw_ddf_rect(ax, ra_min, ra_max, dec_min, dec_max)
 
-    # ── Alert scatter (z=3-7) ─────────────────────────────────────────────────
     tags      = tags_to_show or sorted(catalog["fink_tag"].unique().tolist())
     n_plotted = _draw_alerts_rect(ax, catalog, tags, marker_size, marker_alpha)
 
-    # ── Limits + labels ───────────────────────────────────────────────────────
     ax.invert_xaxis()
     ax.set_xlim(ra_max, ra_min)
     ax.set_ylim(dec_min, dec_max)
@@ -692,11 +617,9 @@ def plot_skymap_rect(
     for sp in ax.spines.values():
         sp.set_edgecolor(BORDER_COL)
 
-    # ── Legend ────────────────────────────────────────────────────────────────
     _build_legend(ax, show_ddf, show_galactic_plane,
                   show_galactic_band, galactic_band_b)
 
-    # ── Title ─────────────────────────────────────────────────────────────────
     if title is None:
         title = (
             f"Fink/LSST Alert Sky Map  —  {n_plotted} objects"
@@ -710,7 +633,7 @@ def plot_skymap_rect(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# plot_skymap_mollweide  — full-sky Mollweide projection
+# plot_skymap_mollweide
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ra_to_moll(ra_deg):
@@ -733,37 +656,92 @@ def plot_skymap_mollweide(
     show_ddf: bool = True,
     show_grid: bool = True,
     ra_unit: str = "hms",
+    sky_background: bool = False,
+    hips_survey: str = "CDS/P/DSS2/color",
+    hips_alpha: float = 0.65,
+    hips_verbose: bool = True,
     title: str | None = None,
     figsize: tuple[float, float] = (14, 7),
     tags_to_show: list[str] | None = None,
 ) -> tuple[plt.Figure, plt.Axes]:
-    """
-    Full-sky Mollweide projection.
-
-    0h at centre, RA increases to the left.
-    Grid: RA every 30° (2h), Dec every 30°.  Labels on both axes.
-
-    Parameters
-    ----------
-    catalog : pd.DataFrame
-    marker_size, marker_alpha : float
-    show_galactic_plane, show_galactic_band : bool
-    galactic_band_b : float
-    show_ddf : bool
-    show_grid : bool
-    ra_unit : 'hms' or 'deg'
-    title : str, optional
-    figsize : tuple
-    tags_to_show : list[str], optional
-
-    Returns
-    -------
-    (fig, ax)
-    """
+    """Full-sky Mollweide projection with optional HiPS background."""
     fig = plt.figure(figsize=figsize, facecolor=DARK_BG)
     fig.patch.set_facecolor(DARK_BG)
     ax  = fig.add_subplot(111, projection="mollweide")
     ax.set_facecolor(PANEL_BG)
+
+    # ── HiPS sky background ───────────────────────────────────────────────────
+    if sky_background:
+        img = fetch_hips_image(
+            ra_center=0.0, dec_center=0.0, fov_deg=360.0,
+            hips_survey=hips_survey,
+            width_px=2048, height_px=1024,
+            projection="CAR",
+            verbose=hips_verbose,
+        )
+        if img is not None:
+            H_src, W_src = img.shape[:2]
+            H_out, W_out = 512, 1024
+
+            # FITS WCS from header: CRVAL1=0, CRPIX1=1024, CDELT1<0
+            #                       CRVAL2=0, CRPIX2=512,  CDELT2>0 (South at row 0)
+            CRVAL1, CRPIX1, CDELT1 = 0.0, 1024.0, -360.0 / W_src
+            CRVAL2, CRPIX2, CDELT2 = 0.0,  512.0, +180.0 / H_src
+
+            x_ax = np.linspace(0, 1, W_out)
+            y_ax = np.linspace(1, 0, H_out)
+            xv, yv = np.meshgrid(x_ax, y_ax)
+            x_moll = (xv - 0.5) * 2.0 * np.pi
+            y_moll = (yv - 0.5) * np.pi
+
+            ellipse_mask = (x_moll/np.pi)**2 + (y_moll/(np.pi/2))**2 <= 1.0
+
+            # Inverse Mollweide (Newton): 2θ + sin(2θ) = π·sin(y_moll)
+            theta = y_moll.copy()
+            for _ in range(10):
+                cos2t = np.cos(2.0 * theta)
+                denom = np.where(np.abs(cos2t + 1) < 1e-12, 1e-12,
+                                 2.0 + 2.0 * cos2t)
+                theta -= (2.0*theta + np.sin(2.0*theta)
+                          - np.pi * np.sin(y_moll)) / denom
+
+            dec_deg_grid = np.rad2deg(np.arcsin(np.clip(
+                (2.0*theta + np.sin(2.0*theta)) / np.pi, -1.0, 1.0)))
+
+            costheta = np.cos(theta)
+            ra_rad = np.where(np.abs(costheta) < 1e-9, 0.0,
+                              -x_moll / costheta)
+            ra_deg_grid = np.rad2deg(ra_rad)  # [-180, 180]
+
+            # FITS WCS: col = (RA - CRVAL1)/CDELT1 + CRPIX1 - 1
+            #           row = (Dec - CRVAL2)/CDELT2 + CRPIX2 - 1
+            col_f = (ra_deg_grid  - CRVAL1) / CDELT1 + CRPIX1 - 1
+            row_f = (dec_deg_grid - CRVAL2) / CDELT2 + CRPIX2 - 1
+            col_f = col_f % W_src  # periodic wrap
+
+            col0 = np.clip(col_f.astype(int), 0, W_src - 2)
+            col1 = col0 + 1
+            row0 = np.clip(row_f.astype(int), 0, H_src - 2)
+            row1 = row0 + 1
+            wc   = (col_f - col0)[..., np.newaxis]
+            wr   = (row_f - row0)[..., np.newaxis]
+
+            resampled = (
+                img[row0, col0] * (1-wr) * (1-wc) +
+                img[row0, col1] * (1-wr) *    wc  +
+                img[row1, col0] *    wr  * (1-wc) +
+                img[row1, col1] *    wr  *    wc
+            ).astype(np.float32)
+
+            resampled[..., 3] = np.where(
+                ellipse_mask, resampled[..., 3] * hips_alpha, 0.0)
+
+            ax.imshow(resampled, origin="upper", extent=[0, 1, 0, 1],
+                      aspect="auto", zorder=0, interpolation="bilinear",
+                      transform=ax.transAxes)
+        else:
+            if hips_verbose:
+                print("[HiPS] Background not available — plain background kept.")
 
     # ── Galactic overlays ─────────────────────────────────────────────────────
     if show_galactic_plane:
@@ -815,10 +793,7 @@ def plot_skymap_mollweide(
 
     # ── Grid & labels ─────────────────────────────────────────────────────────
     if show_grid:
-        # matplotlib draws the elliptic Mollweide graticule automatically
         ax.grid(True, color=GRID_COL, lw=0.8, alpha=0.65, ls="-", zorder=1)
-
-        # RA tick labels every 30° (2h steps)
         ra_deg  = np.arange(0, 360, 30)
         ax.set_xticks(_ra_to_moll(ra_deg))
         if ra_unit == "hms":
@@ -826,8 +801,6 @@ def plot_skymap_mollweide(
         else:
             xlabels = [f"{r:.0f}°" for r in ra_deg]
         ax.set_xticklabels(xlabels, color=TEXT_COL, fontsize=8)
-
-        # Dec tick labels every 30°
         dec_deg = np.arange(-60, 90, 30)
         ax.set_yticks(_dec_to_moll(dec_deg))
         ax.set_yticklabels([f"{d:+.0f}°" for d in dec_deg],
@@ -836,14 +809,11 @@ def plot_skymap_mollweide(
         ax.grid(False)
 
     ax.tick_params(colors=TEXT_COL, labelsize=8)
-
-    # ── Legend ────────────────────────────────────────────────────────────────
     _build_legend(ax, show_ddf, show_galactic_plane,
                   show_galactic_band, galactic_band_b)
 
     if title is None:
-        title = (f"Fink/LSST Alert Sky Map — Mollweide  "
-                 f"({n_plotted} objects)")
+        title = (f"Fink/LSST Alert Sky Map — Mollweide  ({n_plotted} objects)")
     ax.set_title(title, color=TEXT_COL, fontsize=11,
                  fontfamily="monospace", pad=10)
 
@@ -851,7 +821,7 @@ def plot_skymap_mollweide(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# plot_skymap_combined  — two-panel figure
+# plot_skymap_combined
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_skymap_combined(
@@ -872,25 +842,13 @@ def plot_skymap_combined(
     figsize: tuple[float, float] = (16, 12),
     save_path: str | Path | None = None,
 ) -> plt.Figure:
-    """
-    Two-panel sky map:
-      Top    → Mollweide full-sky
-      Bottom → Rectangular zoom on the data region
-
-    All parameters are forwarded to the individual plot functions.
-
-    Returns
-    -------
-    plt.Figure
-    """
+    """Two-panel sky map: Mollweide (top) + Rectangular zoom (bottom)."""
     fig = plt.figure(figsize=figsize, facecolor=DARK_BG)
     fig.patch.set_facecolor(DARK_BG)
 
-    # ── Top: Mollweide ────────────────────────────────────────────────────────
     ax_moll = fig.add_subplot(2, 1, 1, projection="mollweide")
     ax_moll.set_facecolor(PANEL_BG)
 
-    # Draw galactic overlays
     if show_galactic_plane:
         ra_gp, dec_gp = galactic_plane_radec(3000)
         for ra_s, dec_s in _split_segments(ra_gp, dec_gp):
@@ -908,7 +866,6 @@ def plot_skymap_combined(
                     marker="x", s=140, color=GALCENTER_COL,
                     linewidths=2.5, zorder=10)
 
-    # DDFs
     if show_ddf:
         for ddf in RUBIN_DDF:
             ax_moll.scatter(_ra_to_moll([ddf["ra"]]),
@@ -921,7 +878,6 @@ def plot_skymap_combined(
                 xytext=(4, 4), textcoords="offset points",
                 color=DDF_COL, fontsize=6, fontfamily="monospace")
 
-    # Alerts
     tags = tags_to_show or sorted(catalog["fink_tag"].unique().tolist())
     for tag in tags:
         s   = TAG_STYLES.get(tag, DEFAULT_TAG_STYLE)
@@ -935,10 +891,8 @@ def plot_skymap_combined(
                         edgecolors="white", linewidths=0.3,
                         label=f"{s['label']}  (n={len(sub)})")
 
-    # Grid
     if show_grid:
-        ax_moll.grid(True, color=GRID_COL, lw=0.8, alpha=0.65, ls="-",
-                     zorder=1)
+        ax_moll.grid(True, color=GRID_COL, lw=0.8, alpha=0.65, ls="-", zorder=1)
         ra_deg = np.arange(0, 360, 30)
         ax_moll.set_xticks(_ra_to_moll(ra_deg))
         xlabels = ([ra_deg_to_hms(r) for r in ra_deg] if ra_unit == "hms"
@@ -954,7 +908,6 @@ def plot_skymap_combined(
     ax_moll.set_title("Full sky — Mollweide projection",
                       color=TEXT_COL, fontsize=10, fontfamily="monospace")
 
-    # ── Bottom: Rectangular ────────────────────────────────────────────────────
     ax_rect = fig.add_subplot(2, 1, 2)
     plot_skymap_rect(
         catalog,
@@ -984,8 +937,7 @@ def plot_skymap_combined(
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight",
-                    facecolor=DARK_BG)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
         print(f"✓ Saved: {save_path}")
 
     return fig
