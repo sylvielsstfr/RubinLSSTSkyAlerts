@@ -21,6 +21,7 @@ dependencies = [
     "pandas",
     "matplotlib",
     "astropy",
+    "healpy",
     "requests",
     "pyarrow",          # backend parquet pour pandas
     "astroquery",       # hips2fits (sky backgrounds)
