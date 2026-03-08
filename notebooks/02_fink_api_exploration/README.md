@@ -87,6 +87,64 @@ API parameters used:
 | `columns`       | comma-separated `f:`-prefixed column names  |
 | `output-format` | `csv` (default in this notebook)            |
 
+Outputs are saved to `data_FINKAPISTAT04/` (CSV) and `figs_FINKAPISTAT04/` (PDF + PNG).
+
+### `05_fink_api_blocks.ipynb`
+Decoding and exploration of the `/api/v1/blocks` endpoint of the Fink LSST API.
+This endpoint returns the **complete schema** of the Fink HBase database, i.e. the
+full list of column definitions organised into logical *block families* (column groups).
+
+In the Fink HBase backend, each column carries a two-character prefix that identifies
+its block family:
+
+| Prefix | Content |
+|--------|---------|
+| `i:`   | Raw Rubin/LSST alert fields (`diaSource` / `diaObject`) |
+| `r:`   | Rubin-derived fields further processed by Fink |
+| `d:`   | Fink science module outputs (classifiers, cross-matches) |
+| `f:`   | Fink broker metadata (night counters, statistics) |
+| `b:`   | Binary data / cutout metadata |
+
+The notebook covers:
+
+- **Raw JSON inspection** — pretty-print of the API response and automatic detection
+  of its structure (flat list, dict of lists, or nested dict)
+- **Normalisation** — adaptive flattening into a tidy DataFrame regardless of the
+  response format, with automatic inference of the block prefix from column names
+- **Schema completeness** — null-count and fill-rate summary per DataFrame column
+- **Columns per block prefix** — horizontal bar chart and pie chart showing how many
+  columns belong to each block family
+- **Data-type distribution** — bar chart of column data types across the full schema
+- **Data-type breakdown per prefix** — stacked bar chart crossing block family and
+  data type
+- **Column name length distribution** — histogram and top-20 longest names
+- **Per-prefix column listing** — full tabular display of every column per block family,
+  with optional type and description columns; each prefix exported as a CSV file
+- **Cross-reference with live endpoints** — comparison of block-defined columns against
+  those actually returned by `/api/v1/statistics` and `/api/v1/tags`
+- **Block completeness histogram** — grouped bar chart (defined vs. active per prefix)
+- **Keyword analysis** — CamelCase / snake_case tokenisation of all column names,
+  top-50 recurring keywords plotted as a horizontal bar chart
+- **Summary table** — total counts per block, active columns per live endpoint
+
+Outputs are saved to `data_FINKAPIBLOCKS05/` (JSON, CSV) and `figs_FINKAPIBLOCKS05/` (PDF + PNG).
+
+---
+
+## Output directory convention
+
+Each notebook writes its generated files into two dedicated subdirectories:
+
+```
+data_<TAG><NN>/   — raw and processed data (CSV, JSON, parquet, …)
+figs_<TAG><NN>/   — figures exported as PDF and PNG
+```
+
+| Notebook | Tag        | Data dir                  | Figs dir                  |
+|----------|------------|---------------------------|---------------------------|
+| 04       | FINKAPISTAT| `data_FINKAPISTAT04/`     | `figs_FINKAPISTAT04/`     |
+| 05       | FINKAPIBLOCKS| `data_FINKAPIBLOCKS05/` | `figs_FINKAPIBLOCKS05/`   |
+
 ---
 
 ## Dependencies
@@ -124,6 +182,7 @@ Key endpoints used:
 | `/api/v1/latests`      | Latest alerts by class (incl. Solar System)        |
 | `/api/v1/objects`      | Aggregated statistics per `diaObjectId`            |
 | `/api/v1/statistics`   | Per-night alert stream statistics (all tags)       |
+| `/api/v1/blocks`       | Full HBase schema — block family and column definitions |
 | `/api/v1/schema`       | Column schema for each endpoint                    |
 
 Available tags (as of March 2026):
