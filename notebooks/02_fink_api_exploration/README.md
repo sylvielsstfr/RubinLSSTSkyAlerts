@@ -12,6 +12,19 @@ Stacked histograms of Fink/LSST alerts as a function of Right Ascension (RA),
 broken down by scientific classification tag. Provides a first look at the
 angular distribution of alerts across the surveyed sky.
 
+### `01b_fink_dec_histogram.ipynb`
+Stacked histograms of Fink/LSST alerts as a function of Declination (Dec),
+broken down by scientific classification tag. Complements the RA notebook by
+showing the latitudinal sky coverage. The Dec distribution directly reflects
+the Rubin/LSST Wide-Fast-Deep footprint and the observatory latitude
+(Cerro Pachón, –30.24°). Includes:
+
+- **Stacked histogram by tag** — alert count vs Dec, one colour per classification tag
+- **Per-tag side-by-side panels** — individual Dec distributions per tag
+- **Stacked histogram by spectral band** — same Dec axis but stacked by filter
+  (`u`, `g`, `r`, `i`, `z`, `y`) to reveal filter-dependent coverage patterns
+- Observatory latitude and approximate Galactic plane region overlaid as reference lines
+
 ### `02_fink_healpix_skymap_statistics.ipynb`
 Full-sky HEALPix statistics of Fink/LSST alerts:
 
@@ -44,7 +57,7 @@ Same astronomical annotations as notebook 02.
 
 ## Dependencies
 
-| Package     | Role                                    |
+| Package     | Role                                     |
 |-------------|------------------------------------------|
 | `healpy`    | HEALPix pixelisation and Mollweide plots |
 | `astropy`   | Coordinate transforms, time (MJD/TAI)   |
@@ -71,11 +84,11 @@ https://api.lsst.fink-portal.org
 
 Key endpoints used:
 
-| Endpoint            | Description                                     |
-|---------------------|-------------------------------------------------|
+| Endpoint            | Description                                      |
+|---------------------|--------------------------------------------------|
 | `/api/v1/tags`      | Alerts filtered by scientific classification tag |
-| `/api/v1/latests`   | Latest alerts by class (incl. Solar System)     |
-| `/api/v1/objects`   | Aggregated statistics per `diaObjectId`          |
+| `/api/v1/latests`   | Latest alerts by class (incl. Solar System)      |
+| `/api/v1/objects`   | Aggregated statistics per `diaObjectId`           |
 | `/api/v1/schema`    | Column schema for each endpoint                  |
 
 Available tags (as of March 2026):
