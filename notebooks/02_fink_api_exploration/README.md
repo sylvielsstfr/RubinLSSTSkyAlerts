@@ -41,6 +41,12 @@ Galactic centre, Large and Small Magellanic Clouds, and all six
 Rubin/LSST Deep Drilling Fields (COSMOS, XMM-LSS, ECDFS, EDFS-a, EDFS-b,
 Euclid Deep Field South).
 
+The `plot_skymap_with_annotations()` function supports both equatorial (`coord='C'`)
+and Galactic (`coord='G'`) projections. In Galactic mode all overlays (plane,
+landmarks, DDFs) are automatically converted to Galactic coordinates (l, b) before
+being passed to the healpy projection routines, and axis tick labels switch to
+(l, b) accordingly.
+
 ### `03_fink_healpix_temporal_dynamics.ipynb`
 Temporal dynamics of Fink/LSST alerts on HEALPix skymaps:
 
@@ -52,6 +58,34 @@ Temporal dynamics of Fink/LSST alerts on HEALPix skymaps:
 - **Alert rate curves** — hourly total rate and daily rate per tag
 
 Same astronomical annotations as notebook 02.
+
+### `04_fink_api_statistics.ipynb`
+Exploration of the nightly and cumulative statistics exposed by the
+`/api/v1/statistics` endpoint of the Fink LSST API. This endpoint returns
+one row per observing night with per-tag alert counters. The notebook covers:
+
+- **Schema discovery** — automatic detection of all available columns, dtype
+  summary, and descriptive statistics
+- **Nightly alert counts** — dual-panel bar chart (total alerts + unique objects)
+- **Cumulative stream** — filled area curve with dual Y-axis (alerts / objects)
+- **Per-tag breakdown** — pie chart of cumulative totals (top 10) and nightly
+  stacked bar chart (top 8 tags)
+- **Monthly aggregation** — resampled bar chart with labelled totals
+- **Per-tag cumulative growth** — one curve per tag (top 6) for trend comparison
+- **Rolling 7-night mean** — alert rate smoothing superimposed on nightly bars
+- **Day-of-week patterns** — mean nightly alert count per weekday
+- **Week × day-of-week heatmap** — 2-D calendar view of alert activity
+- **Single-night deep-dive** — re-fetch and full column display for the most
+  productive observed night
+- **Summary table** — key figures (total, mean, median, max night, date range)
+
+API parameters used:
+
+| Parameter       | Values                                      |
+|-----------------|---------------------------------------------|
+| `date`          | `''` (all), `YYYY`, `YYYYMM`, `YYYYMMDD`   |
+| `columns`       | comma-separated `f:`-prefixed column names  |
+| `output-format` | `csv` (default in this notebook)            |
 
 ---
 
@@ -84,12 +118,13 @@ https://api.lsst.fink-portal.org
 
 Key endpoints used:
 
-| Endpoint            | Description                                      |
-|---------------------|--------------------------------------------------|
-| `/api/v1/tags`      | Alerts filtered by scientific classification tag |
-| `/api/v1/latests`   | Latest alerts by class (incl. Solar System)      |
-| `/api/v1/objects`   | Aggregated statistics per `diaObjectId`           |
-| `/api/v1/schema`    | Column schema for each endpoint                  |
+| Endpoint               | Description                                        |
+|------------------------|----------------------------------------------------|
+| `/api/v1/tags`         | Alerts filtered by scientific classification tag   |
+| `/api/v1/latests`      | Latest alerts by class (incl. Solar System)        |
+| `/api/v1/objects`      | Aggregated statistics per `diaObjectId`            |
+| `/api/v1/statistics`   | Per-night alert stream statistics (all tags)       |
+| `/api/v1/schema`       | Column schema for each endpoint                    |
 
 Available tags (as of March 2026):
 - `extragalactic_lt20mag_candidate`
@@ -102,14 +137,14 @@ Available tags (as of March 2026):
 
 ## Rubin/LSST Deep Drilling Fields
 
-| Field                  | RA (°)   | Dec (°)  |
-|------------------------|----------|----------|
-| COSMOS                 | 150.1191 | +2.2058  |
-| XMM-LSS                | 34.3900  | −4.9000  |
-| ECDFS                  | 53.1250  | −28.1000 |
-| EDFS-a                 | 58.9000  | −49.3150 |
-| EDFS-b                 | 63.6000  | −47.6000 |
-| Euclid Deep Field South| 61.2400  | −48.4230 |
+| Field                   | RA (°)   | Dec (°)  |
+|-------------------------|----------|----------|
+| COSMOS                  | 150.1191 | +2.2058  |
+| XMM-LSS                 | 34.3900  | −4.9000  |
+| ECDFS                   | 53.1250  | −28.1000 |
+| EDFS-a                  | 58.9000  | −49.3150 |
+| EDFS-b                  | 63.6000  | −47.6000 |
+| Euclid Deep Field South | 61.2400  | −48.4230 |
 
 ---
 
