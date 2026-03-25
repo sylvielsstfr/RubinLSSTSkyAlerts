@@ -5,7 +5,7 @@
  [!question]
 > Je voudrais ecrire une newsletter pour le portail du Broker-Fink pour LSST pour expliquer en quoi coder avec une IA telle que Claude aide à comprendre comment apprendre à accéder aux données de Fink et ce que l'on peut demander et obtenir.
 > En effet j'ai découvert la version gratuite de Claude depuis un mois (pas de claude-code nin de claude-cowork), c'est à dire depuis que les premières alertes de Rubin-LSST ont été publies vers le 24 février 2026.
-> Une compétence peu conne est que meme avec cette version gratuite, Claude peut ecrire des fichier directement sur mon ordinateur à la suite d'une requete dans la fenetre de claude locale.
+> Une compétence peu connue est que meme avec cette version gratuite, Claude peut ecrire des fichier directement sur mon ordinateur à la suite d'une requete dans la fenetre de claude locale.
 > Typiquement un utilisateur veut voir des courbes de lumières, eventuellement demander une catégorie taguée , selectionnée par Fink.
 > Il y a deux façon d'accéder aux données, soit le telechargement de données à partir du portail, soit l'utilisation d'API via l'interrogation des end-points.
 > Pour des utilisateurs qui ne sont pas familier avec des interactions via les API, le dialogue avec une IA est très pédagogique.
