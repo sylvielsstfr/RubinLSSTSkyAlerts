@@ -16,6 +16,15 @@ The notebooks query the [Fink LSST API](https://api.lsst.fink-portal.org) to
 download light curves in the six LSST bands (*u g r i z y*) and measure their
 photometric stability (normalised RMS variability σ/⟨f⟩) per source class.
 
+Two complementary strategies are implemented:
+
+- **Block / group strategy** (notebooks 01–06): objects are retrieved by spatial
+  cone search on each Deep Drilling Field and classified client-side using Fink
+  crossmatch columns (`f:xm_*`).
+- **Tag strategy** (notebooks 07–08): objects are retrieved globally by Fink
+  classification tag (`/api/v1/tags`) and then filtered spatially per DDF.
+  The Fink tag name directly serves as the group key.
+
 ---
 
 ## Notebooks
@@ -48,6 +57,11 @@ photometric stability (normalised RMS variability σ/⟨f⟩) per source class.
 8. **Persistence** — saves all filtered light curves to Parquet files
    (`{group}_fp.parquet`, `{group}_src.parquet`) under `data_FINK_BLOCK_LC_01/`.
 
+**Cache structure:**
+```python
+lc_cache[group][oid] = {'fp': DataFrame, 'src': DataFrame}
+```
+
 **Outputs written to disk:**
 
 | Path | Content |
@@ -61,7 +75,25 @@ photometric stability (normalised RMS variability σ/⟨f⟩) per source class.
 
 ---
 
-### `02_fink_block_lightcurves_replot.ipynb` — Offline re-visualisation
+### `01_fink_block_lightcurves_lmcsmc.ipynb` — Variant: LMC / SMC fields
+
+Same pipeline as notebook 01, adapted for the **Large and Small Magellanic Cloud**
+fields instead of the standard Deep Drilling Fields.
+Outputs are written to `data_FINK_BLOCK_LC_LMCSMC/` and figures to
+`figs_FINK_BLOCK_LC_LMCSMC/`.
+
+---
+
+### `01_fink_block_lightcurves_showcalibcurves.ipynb` — Variant: calibration curve display
+
+A lightweight variant of notebook 01 focused on displaying only the light curves
+of sources flagged as suitable for photometric calibration (`calib` groups).
+Useful for a quick visual inspection of the calibration sample without rerunning
+the full pipeline.
+
+---
+
+### `02_fink_block_lightcurves_replot.ipynb` — Offline re-visualisation (block strategy)
 
 **What it does:**
 
@@ -75,14 +107,24 @@ made** — and reproduces or extends the same set of plots.
    Magnitude columns (`mag`, `mag_err`) are recomputed on-the-fly if absent.
 3. **Defensive NaN removal** — applies `dropna` on core columns at load time and
    a finite-value mask just before each `errorbar` call.
-4. **Group-level plots** — flux and magnitude grids for all groups (sections 7–8),
+4. **PLOT_MODE filter** — select `'all'` groups, only `'calib'` groups, or only
+   `'exclude'` (variable, transient, SSO) groups via a single configuration variable.
+5. **Group-level plots** — flux and magnitude grids for all selected groups,
    identical layout to notebook 01.
-5. **Single-object inspector** (section 9) — detailed flux + magnitude side-by-side
+6. **Single-object inspector** (section 9) — detailed flux + magnitude side-by-side
    plot per band for any chosen `TARGET_GROUP` / `TARGET_OID`.
-6. **Calibration summary** (section 10) — scatter plot and ranking table read from
+7. **Calibration summary** (section 10) — scatter plot and ranking table read from
    `flatness_metrics.csv`.
 
 **Figures are saved to** `figs_FINK_BLOCK_LC_01_02/`.
+
+---
+
+### `02_fink_block_lightcurves_replot_lmcsmc.ipynb` — Variant: LMC / SMC replot
+
+Offline re-visualisation counterpart of `01_fink_block_lightcurves_lmcsmc.ipynb`.
+Reads data from `data_FINK_BLOCK_LC_LMCSMC/` and saves figures to
+`figs_FINK_BLOCK_LC_LMCSMC/`.
 
 ---
 
@@ -209,35 +251,160 @@ The notebook automatically searches for per-band photometric columns in
 
 ---
 
+### `07_fink_tags_lightcurves.ipynb` — Data retrieval & light-curve analysis (tag strategy)
+
+**What it does:**
+
+Retrieves photometric light curves for objects found via the **Fink LSST
+classification tags** (`/api/v1/tags` endpoint), restricted to the LSST Deep
+Drilling Fields by client-side spatial cross-matching.
+
+1. **Global tag fetch** — for each tag in `TAGS_TO_QUERY`, fetches up to
+   `N_PER_TAG = 50 000` alerts globally via `GET /api/v1/tags?tag=<tag>&n=N`.
+   RA/Dec coordinates are included in the returned columns.
+2. **Client-side spatial filter** — for each (tag, DDF) pair, keeps only objects
+   whose coordinates fall within `CONE_RADIUS` arcsec of the DDF centre using
+   the vectorised Vincenty formula.  This requires only `len(TAGS_TO_QUERY)` API
+   calls (instead of `len(TAGS) × len(DDFs)`).
+3. **Deduplication** — one entry per `diaObjectId`; objects must have at least
+   `NP_MIN = 200` detections.
+4. **Light curve download** — fetches full diaSources (`/api/v1/sources`) and
+   forced photometry (`/api/v1/fp`) for up to 200 objects, sorted by
+   `nDiaSources` descending.
+5. **Group key = tag** — the Fink tag name directly replaces the
+   `classify_object()` scheme of notebook 01.  The DDF name is preserved as a
+   `field` attribute in both `lc_cache` and the Parquet files.
+6. **Flatness metrics** — same σ/⟨f⟩ computation as notebook 01, with an extra
+   breakdown by DDF (`field`).
+7. **Visit summary** — builds `visit_summary_src.csv` / `visit_summary_fp.csv`
+   and `visit_index.csv` / `visit_index_fp.csv` with `tag` and `field` columns.
+8. **Persistence** — saves light curves to `data_FINK_BLOCK_LC_07/` and ranking
+   to `tag_ranking.csv`.
+
+Currently queried tags:
+
+| Tag | Description |
+|-----|-------------|
+| `extragalactic_lt20mag_candidate` | Rising, bright (mag < 20), extragalactic candidates |
+| `extragalactic_new_candidate` | New (< 48 h first detection) and potentially extragalactic |
+| `hostless_candidate` | Hostless alerts according to ELEPHANT (arXiv:2404.18165) |
+| `in_tns` | Alerts with a known counterpart in TNS (AT or confirmed) |
+| `sn_near_galaxy_candidate` | Alerts matching a galaxy catalog and consistent with SNe |
+
+**Cache structure:**
+```python
+lc_cache[oid] = {
+    'fp'   : DataFrame,   # forced photometry
+    'src'  : DataFrame,   # diaSources
+    'group': str,         # = tag name
+    'tag'  : str,         # = tag name (explicit copy)
+    'field': str,         # DDF name (e.g. 'COSMOS')
+}
+```
+
+**Comparison with notebook 01:**
+
+| Aspect | NB 01 (blocks / groups) | NB 07 (tags × DDFs) |
+|--------|------------------------|---------------------|
+| Object selection | Cone search POST `/conesearch` per DDF | GET `/tags` global then client-side spatial filter per DDF |
+| Classification | Custom `classify_object()` on `f:xm_*` | Fink tag = group directly |
+| `lc_cache` key | `lc_cache[group][oid]` | `lc_cache[oid]` |
+| `field` attribute | DDF name from cone search loop | DDF name from spatial filter loop |
+| Output directory | `data_FINK_BLOCK_LC_01` | `data_FINK_BLOCK_LC_07` |
+
+**Outputs written to disk:**
+
+| Path | Content |
+|------|---------|
+| `data_FINK_BLOCK_LC_07/{tag}_fp.parquet` | Forced-photometry light curves |
+| `data_FINK_BLOCK_LC_07/{tag}_src.parquet` | Detection-based light curves |
+| `data_FINK_BLOCK_LC_07/flatness_metrics.csv` | Per-object, per-band RMS metrics |
+| `data_FINK_BLOCK_LC_07/tag_ranking.csv` | Variability ranking by tag |
+| `data_FINK_BLOCK_LC_07/visit_summary_src.csv` | Per-visit diaSources summary |
+| `data_FINK_BLOCK_LC_07/visit_summary_fp.csv` | Per-visit forced-photometry summary |
+| `data_FINK_BLOCK_LC_07/visit_index.csv` | Global visit index (diaSources) |
+| `data_FINK_BLOCK_LC_07/visit_index_fp.csv` | Global visit index (forced photometry) |
+| `figs_FINK_BLOCK_LC_07/01_flatness_boxplot_by_tag.{pdf,png}` | Variability boxplot by tag |
+| `figs_FINK_BLOCK_LC_07/01b_flatness_boxplot_by_field.{pdf,png}` | Variability boxplot by DDF |
+| `figs_FINK_BLOCK_LC_07/02_lc_{tag}_{mode}.{pdf,png}` | Light curve grids |
+| `figs_FINK_BLOCK_LC_07/03_tag_summary_scatter.{pdf,png}` | Variability scatter plot |
+
+---
+
+### `08_fink_tags_lightcurves_replot.ipynb` — Offline re-visualisation (tag strategy)
+
+**What it does:**
+
+Reads all Parquet files and CSVs produced by notebook 07 — **no API call is
+made** — and reproduces or extends the same set of plots.
+
+1. **Auto-discovery** — scans `data_FINK_BLOCK_LC_07/` with `glob` to find all
+   available tags without hard-coding their names.
+2. **Cache reconstruction** — loads each `_fp` and `_src` Parquet file and
+   rebuilds the `lc_cache[oid]` dictionary with `group`, `tag`, and `field` keys
+   extracted from the stored Parquet columns.
+   Magnitude columns (`mag`, `mag_err`) are recomputed on-the-fly if absent.
+3. **PLOT_MODE filter** — set to `'all'` (default) or a Python list of tag names
+   to restrict which tags are plotted.
+4. **Flatness boxplots** — per-tag variability (section 6) and per-DDF variability
+   (section 6b), identical to notebook 07.
+5. **Light curve grids** — flux (section 8) and magnitude (section 9) for all
+   selected tags, with the DDF name displayed in each y-axis label.
+6. **Single-object inspector** (section 10) — detailed flux + magnitude
+   side-by-side plot per band for any chosen `TARGET_TAG` / `TARGET_OID`.
+7. **Summary scatter plot** (section 11) — variability vs. mean flux per tag,
+   per band.
+8. **Ranking table** (section 12) — reads `tag_ranking.csv` if present, or
+   recomputes the ranking on-the-fly from `flatness_metrics.csv`.
+
+**Comparison with notebook 02:**
+
+| Aspect | NB 02 (block replot) | NB 08 (tag replot) |
+|--------|---------------------|-------------------|
+| Source data directory | `data_FINK_BLOCK_LC_01` | `data_FINK_BLOCK_LC_07` |
+| `lc_cache` structure | `lc_cache[group][oid]` | `lc_cache[oid]` with `group`/`tag`/`field` keys |
+| Group key | `classify_object()` category | Fink tag name directly |
+| PLOT_MODE options | `'all'` / `'calib'` / `'exclude'` | `'all'` / list of tag names |
+| Extra plots | — | Per-DDF flatness boxplot, tag ranking table |
+| Figure directory | `figs_FINK_BLOCK_LC_01_02` | `figs_FINK_BLOCK_LC_07_08` |
+
+**Figures are saved to** `figs_FINK_BLOCK_LC_07_08/`.
+
+---
+
 ## Directory layout
 
 ```
 03_fink_api_blockselections/
-├── 01_fink_block_lightcurves.ipynb          # data retrieval & light-curve analysis
-├── 02_fink_block_lightcurves_replot.ipynb   # offline re-visualisation
-├── 03_fink_add_visitId.ipynb                # add Rubin visit identifiers
-├── 04_fink_selectDIAObject_tovisitIddetector.ipynb  # select objects by visit & detector
-├── 05_fink_download_objects.ipynb           # download object-level aggregate summary
-├── 06_fink_color_color_diagram.ipynb        # colour-colour diagram (G−R) vs (R−I)
-├── README.md                                # this file
-├── data_FINK_BLOCK_LC_01/
+│
+├── 01_fink_block_lightcurves.ipynb                    # block strategy: data retrieval & analysis
+├── 01_fink_block_lightcurves_lmcsmc.ipynb             # variant: LMC/SMC fields
+├── 01_fink_block_lightcurves_showcalibcurves.ipynb    # variant: calibration curves only
+├── 02_fink_block_lightcurves_replot.ipynb             # block strategy: offline re-visualisation
+├── 02_fink_block_lightcurves_replot_lmcsmc.ipynb      # variant: LMC/SMC replot
+├── 03_fink_add_visitId.ipynb                          # add Rubin visit identifiers
+├── 04_fink_selectDIAObject_tovisitIddetector.ipynb    # select objects by visit & detector
+├── 05_fink_download_objects.ipynb                     # download object-level aggregate summary
+├── 06_fink_color_color_diagram.ipynb                  # colour-colour diagram (G−R) vs (R−I)
+├── 07_fink_tags_lightcurves.ipynb                     # tag strategy: data retrieval & analysis
+├── 08_fink_tags_lightcurves_replot.ipynb              # tag strategy: offline re-visualisation
+│
+├── README.md                                          # this file
+│
+├── lsst_meridian_visibility.py                        # helper: LSST meridian visibility curves
+├── lsst_meridian_visibility_fr.py                     # idem (French labels)
+│
+├── data_FINK_BLOCK_LC_01/                             # block strategy outputs
 │   ├── flatness_metrics.csv
-│   ├── objects_all.parquet                  # produced by notebook 05
-│   ├── objects_all.csv
-│   ├── visit_index.csv
-│   ├── visit_index_fp.csv
-│   ├── visit_summary_src.csv
-│   ├── visit_summary_fp.csv
+│   ├── objects_all.parquet / objects_all.csv
+│   ├── visit_index.csv / visit_index_fp.csv
+│   ├── visit_summary_src.csv / visit_summary_fp.csv
 │   ├── gaia_star_stable_fp.parquet
 │   ├── gaia_star_stable_src.parquet
 │   ├── gaia_star_variable_fp.parquet
 │   ├── gaia_star_variable_src.parquet
 │   ├── simbad_galaxy_fp.parquet
 │   ├── simbad_galaxy_src.parquet
-│   ├── simbad_AG?_fp.parquet
-│   ├── simbad_AG?_src.parquet
-│   ├── simbad_rG_fp.parquet
-│   ├── simbad_rG_src.parquet
 │   ├── mangrove_galaxy_2mass_fp.parquet
 │   ├── mangrove_galaxy_2mass_src.parquet
 │   ├── tns_transient_fp.parquet
@@ -246,10 +413,31 @@ The notebook automatically searches for per-band photometric columns in
 │   ├── vsx_variable_src.parquet
 │   ├── unclassified_fp.parquet
 │   └── unclassified_src.parquet
-├── figs_FINK_BLOCK_LC_01/                   # figures from notebook 01
-├── figs_FINK_BLOCK_LC_01_AUG/              # figures from augmented variant
-├── figs_FINK_BLOCK_LC_01_02/               # figures from notebooks 02 & 06
-└── figs_FINK_BLOCK_LC_LMCSMC/             # figures for LMC/SMC variant
+│
+├── data_FINK_BLOCK_LC_07/                             # tag strategy outputs
+│   ├── flatness_metrics.csv
+│   ├── tag_ranking.csv
+│   ├── visit_index.csv / visit_index_fp.csv
+│   ├── visit_summary_src.csv / visit_summary_fp.csv
+│   ├── extragalactic_lt20mag_candidate_fp.parquet
+│   ├── extragalactic_lt20mag_candidate_src.parquet
+│   ├── extragalactic_new_candidate_fp.parquet
+│   ├── extragalactic_new_candidate_src.parquet
+│   ├── hostless_candidate_fp.parquet
+│   ├── hostless_candidate_src.parquet
+│   ├── in_tns_fp.parquet
+│   ├── in_tns_src.parquet
+│   ├── sn_near_galaxy_candidate_fp.parquet
+│   └── sn_near_galaxy_candidate_src.parquet
+│
+├── data_FINK_BLOCK_LC_LMCSMC/                        # LMC/SMC variant outputs
+│
+├── figs_FINK_BLOCK_LC_01/                            # figures from notebook 01
+├── figs_FINK_BLOCK_LC_01_02/                         # figures from notebooks 02 & 06
+├── figs_FINK_BLOCK_LC_01_AUG/                        # figures from augmented variant
+├── figs_FINK_BLOCK_LC_07/                            # figures from notebook 07
+├── figs_FINK_BLOCK_LC_07_08/                         # figures from notebook 08
+└── figs_FINK_BLOCK_LC_LMCSMC/                        # figures for LMC/SMC variant
 ```
 
 ---
@@ -259,10 +447,18 @@ The notebook automatically searches for per-band photometric columns in
 The notebooks must be run in order, as each one depends on outputs from the previous:
 
 ```
-01  →  02  (optional re-plot, no API call)
+Block strategy
+──────────────
+01  →  02  (optional offline replot, no API call)
 01  →  03  →  04
 01  →  05  →  06
+
+Tag strategy
+────────────
+07  →  08  (optional offline replot, no API call)
 ```
+
+The two strategies are independent: notebooks 07–08 do not depend on 01–06.
 
 ---
 
@@ -270,11 +466,12 @@ The notebooks must be run in order, as each one depends on outputs from the prev
 
 | Package | Purpose |
 |---------|---------|
-| `requests` | Fink API HTTP calls (notebooks 01, 05 only) |
+| `requests` | Fink API HTTP calls (notebooks 01, 07 only) |
 | `pandas ≥ 2.0` | DataFrames, Parquet I/O |
 | `numpy` | Numerical computations |
 | `matplotlib` | Plotting |
 | `pyarrow` or `fastparquet` | Parquet backend for pandas |
+| `ipympl` *(optional)* | Interactive `%matplotlib widget` backend |
 
 Install with:
 ```bash
@@ -286,20 +483,22 @@ or activate the `conda_py313` environment already configured for this project.
 
 ## Key API notes
 
-- The Fink LSST API requires the **`r:` column prefix** in cone-search requests
-  (using `i:` causes HTTP 500 errors).
+- The Fink LSST API requires the **`r:` column prefix** in cone-search and
+  source requests (using `i:` causes HTTP 500 errors).
 - Block flags (`b_*`) cannot be used as API filters; classification is done
-  client-side via `f:xm_*` crossmatch columns returned by the cone search.
+  client-side via `f:xm_*` crossmatch columns.
+- The `/api/v1/tags` endpoint does **not** support spatial (RA/Dec/radius)
+  filtering; spatial selection must be applied client-side after the global fetch.
 - Endpoints used across the notebooks:
 
 | Endpoint | Method | Used in |
 |----------|--------|---------|
 | `/api/v1/conesearch` | POST | notebook 01 |
-| `/api/v1/sources` | POST | notebook 01 |
-| `/api/v1/fp` | POST | notebook 01 |
+| `/api/v1/sources` | POST | notebooks 01, 07 |
+| `/api/v1/fp` | POST | notebooks 01, 07 |
 | `/api/v1/objects` | POST | notebook 05 |
-| `/api/v1/blocks` | GET | notebook 01 |
-| `/api/v1/tags` | GET | notebook 01 |
+| `/api/v1/tags` | GET | notebooks 01, 07 |
+| `/api/v1/blocks` | GET | notebooks 01, 07 |
 
 ---
 
