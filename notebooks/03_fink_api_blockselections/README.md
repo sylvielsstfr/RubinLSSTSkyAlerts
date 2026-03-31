@@ -1,10 +1,9 @@
-# Fink/LSST — Light Curve Analysis for Atmospheric Transparency Calibration
+π# Fink/LSST — Light Curve Analysis for Atmospheric Transparency Calibration
 
 This directory contains a series of Jupyter notebooks that retrieve, classify,
 and visualise photometric light curves from the [Fink](https://fink-portal.org)
 alert broker for LSST/Rubin commissioning data, with the goal of identifying
 stable stellar and galactic sources suitable for **atmospheric transparency calibration**.
-
 ---
 
 ## Context
@@ -111,10 +110,54 @@ made** — and reproduces or extends the same set of plots.
    `'exclude'` (variable, transient, SSO) groups via a single configuration variable.
 5. **Group-level plots** — flux and magnitude grids for all selected groups,
    identical layout to notebook 01.
-6. **Single-object inspector** (section 9) — detailed flux + magnitude side-by-side
+6. **Luptitude support** — additional plot mode using asinh magnitudes (Lupton et al.
+   1999) that handle zero and negative DIA flux values.
+7. **Single-object inspector** — detailed flux + magnitude + luptitude side-by-side
    plot per band for any chosen `TARGET_GROUP` / `TARGET_OID`.
-7. **Calibration summary** (section 10) — scatter plot and ranking table read from
+8. **Calibration summary** — scatter plot and ranking table read from
    `flatness_metrics.csv`.
+
+**Figures are saved to** `figs_FINK_BLOCK_LC_01_02/`.
+
+---
+
+### `02_fink_block_lightcurves_replot_renormalised.ipynb` — Offline re-visualisation with inter-band renormalisation (block strategy)
+
+**What it does:**
+
+Extends `02_fink_block_lightcurves_replot.ipynb` by adding **inter-band flux
+renormalisation** before the combined multi-band light curve panels.  All data
+are read from disk — **no API call is made**.
+
+The renormalisation pipeline (sections 11–12):
+
+1. **Reference band selection** (`choose_reference_band`) — priority order
+   *i → r → z → g → y*; falls back from diaSources to src+fp if necessary.
+2. **Dataset selection** (`select_norm_dataset`) — uses the diaSources subset
+   when it has ≥ 5 points, otherwise the combined src+fp table.
+3. **Factor estimation** (`compute_band_normalization`) — aligns the two time
+   series by temporal interpolation and computes the median flux ratio (mode
+   `'flux'`) or median magnitude offset (mode `'mag'` / `'luptitude'`).
+   Requires ≥ 5 overlapping interpolated points.
+4. **Application** (`apply_normalization`) — applies the multiplicative factor
+   to `r:psfFlux` / `r:psfFluxErr` (flux mode) or the additive offset to `mag`
+   (magnitude mode) on working copies; magnitude columns are recomputed after
+   flux rescaling.
+5. **Plot** (`plot_singleobjlightcurve_normalized`) — same three-panel layout
+   (flux / magnitude / luptitude) as the non-renormalised inspector, with y-axis
+   labels annotated `[renorm]`.
+
+The normalisation is applied **on working copies only**; `lc_cache` is never
+modified.
+
+**Comparison with notebook 02:**
+
+| Aspect | NB 02 (replot) | NB 02-renorm (this) |
+|--------|---------------|---------------------|
+| Source data | `data_FINK_BLOCK_LC_01` | same |
+| `lc_cache` structure | `lc_cache[group][oid]` | same |
+| Renormalisation | absent | added (sections 11–12) |
+| Figure directory | `figs_FINK_BLOCK_LC_01_02` | same |
 
 **Figures are saved to** `figs_FINK_BLOCK_LC_01_02/`.
 
@@ -344,17 +387,22 @@ made** — and reproduces or extends the same set of plots.
    rebuilds the `lc_cache[oid]` dictionary with `group`, `tag`, and `field` keys
    extracted from the stored Parquet columns.
    Magnitude columns (`mag`, `mag_err`) are recomputed on-the-fly if absent.
-3. **PLOT_MODE filter** — set to `'all'` (default) or a Python list of tag names
+3. **New-alert sanitisation** — some tags (e.g. `extragalactic_new_candidate`)
+   contain objects detected for the first time and therefore have **no
+   forced-photometry data**.  Their `fp` DataFrames are empty but retain their
+   column schema; all downstream functions use safe helpers (`safe_filter_band`,
+   `safe_finite_mask`, `safe_get_array`) to handle this transparently.
+4. **PLOT_MODE filter** — set to `'all'` (default) or a Python list of tag names
    to restrict which tags are plotted.
-4. **Flatness boxplots** — per-tag variability (section 6) and per-DDF variability
+5. **Flatness boxplots** — per-tag variability (section 6) and per-DDF variability
    (section 6b), identical to notebook 07.
-5. **Light curve grids** — flux (section 8) and magnitude (section 9) for all
-   selected tags, with the DDF name displayed in each y-axis label.
-6. **Single-object inspector** (section 10) — detailed flux + magnitude
-   side-by-side plot per band for any chosen `TARGET_TAG` / `TARGET_OID`.
-7. **Summary scatter plot** (section 11) — variability vs. mean flux per tag,
+6. **Light curve grids** — flux (section 8), magnitude (section 9), and luptitude
+   (section 9b) for all selected tags, with the DDF name displayed in each y-axis label.
+7. **Single-object inspector** (section 10) — detailed flux + magnitude + luptitude
+   three-panel plot per band for any chosen `TARGET_TAG` / `TARGET_OID`.
+8. **Summary scatter plot** (section 11) — variability vs. mean flux per tag,
    per band.
-8. **Ranking table** (section 12) — reads `tag_ranking.csv` if present, or
+9. **Ranking table** (section 12) — reads `tag_ranking.csv` if present, or
    recomputes the ranking on-the-fly from `flatness_metrics.csv`.
 
 **Comparison with notebook 02:**
@@ -365,10 +413,58 @@ made** — and reproduces or extends the same set of plots.
 | `lc_cache` structure | `lc_cache[group][oid]` | `lc_cache[oid]` with `group`/`tag`/`field` keys |
 | Group key | `classify_object()` category | Fink tag name directly |
 | PLOT_MODE options | `'all'` / `'calib'` / `'exclude'` | `'all'` / list of tag names |
+| New-alert fp guard | not needed | yes — safe helpers throughout |
 | Extra plots | — | Per-DDF flatness boxplot, tag ranking table |
 | Figure directory | `figs_FINK_BLOCK_LC_01_02` | `figs_FINK_BLOCK_LC_07_08` |
 
 **Figures are saved to** `figs_FINK_BLOCK_LC_07_08/`.
+
+---
+
+### `08_fink_tags_lightcurves_replot_renormalize.ipynb` — Offline re-visualisation with inter-band renormalisation (tag strategy)
+
+**What it does:**
+
+Extends `08_fink_tags_lightcurves_replot.ipynb` by adding **inter-band flux
+renormalisation** before the combined multi-band light curve panels.  All data
+are read from disk — **no API call is made**.
+
+The notebook follows a two-level architecture:
+
+**Level 1 — raw visualisation (sections 9–10):** identical to notebook 08; raw
+flux, luptitude, and single-object inspector are shown before renormalisation.
+
+**Level 2 — renormalised visualisation (sections 11–14):** the renormalisation
+pipeline is applied on per-object working copies (never modifying `lc_cache`).
+
+The renormalisation pipeline (section 11):
+
+1. **Reference band selection** (`choose_reference_band`) — priority order
+   *i → r → z → g → y*; falls back from diaSources to src+fp if necessary.
+2. **Dataset selection** (`select_norm_dataset`) — uses the diaSources subset
+   when it has ≥ 5 points, otherwise the combined src+fp table.
+3. **Factor estimation** (`compute_band_normalization`) — aligns the two time
+   series by temporal interpolation and computes the median flux ratio (mode
+   `'flux'`) or median magnitude offset (mode `'mag'` / `'luptitude'`).
+   Requires ≥ 5 overlapping interpolated points.
+4. **Application** (`apply_normalization`) — applies the multiplicative factor
+   to `r:psfFlux` / `r:psfFluxErr` and recomputes `mag` / `mag_err` accordingly;
+   or applies the additive offset to `mag` directly (magnitude mode).
+5. **Renormalised inspector** (`plot_singleobjlightcurve_normalized`, section 12)
+   — same three-panel layout (flux / magnitude / luptitude) as the non-renormalised
+   version, with y-axis labels annotated `[renorm]`.
+
+**Key adaptations vs. notebook 02-renorm (block strategy):**
+
+| Aspect | NB 02-renorm (blocks) | NB 08-renorm (this) |
+|--------|-----------------------|---------------------|
+| `lc_cache` structure | `lc_cache[group][oid]` | `lc_cache[oid]` (flat) |
+| `rank_oids` signature | `rank_oids(group)` | `rank_oids(oid_list)` |
+| New-alert fp guard | not needed | yes — empty-fp DataFrames initialised with column schema; all helpers are safe |
+| `mag` recomputation after flux rescaling | not explicit | yes — `apply_normalization` recomputes `mag`/`mag_err` after flux scaling |
+| Figure directory | `figs_FINK_BLOCK_LC_01_02` | `figs_FINK_BLOCK_LC_07_08renorm` |
+
+**Figures are saved to** `figs_FINK_BLOCK_LC_07_08renorm/`.
 
 ---
 
@@ -377,24 +473,26 @@ made** — and reproduces or extends the same set of plots.
 ```
 03_fink_api_blockselections/
 │
-├── 01_fink_block_lightcurves.ipynb                    # block strategy: data retrieval & analysis
-├── 01_fink_block_lightcurves_lmcsmc.ipynb             # variant: LMC/SMC fields
-├── 01_fink_block_lightcurves_showcalibcurves.ipynb    # variant: calibration curves only
-├── 02_fink_block_lightcurves_replot.ipynb             # block strategy: offline re-visualisation
-├── 02_fink_block_lightcurves_replot_lmcsmc.ipynb      # variant: LMC/SMC replot
-├── 03_fink_add_visitId.ipynb                          # add Rubin visit identifiers
-├── 04_fink_selectDIAObject_tovisitIddetector.ipynb    # select objects by visit & detector
-├── 05_fink_download_objects.ipynb                     # download object-level aggregate summary
-├── 06_fink_color_color_diagram.ipynb                  # colour-colour diagram (G−R) vs (R−I)
-├── 07_fink_tags_lightcurves.ipynb                     # tag strategy: data retrieval & analysis
-├── 08_fink_tags_lightcurves_replot.ipynb              # tag strategy: offline re-visualisation
+├── 01_fink_block_lightcurves.ipynb                        # block strategy: data retrieval & analysis
+├── 01_fink_block_lightcurves_lmcsmc.ipynb                 # variant: LMC/SMC fields
+├── 01_fink_block_lightcurves_showcalibcurves.ipynb        # variant: calibration curves only
+├── 02_fink_block_lightcurves_replot.ipynb                 # block strategy: offline re-visualisation
+├── 02_fink_block_lightcurves_replot_renormalised.ipynb    # block strategy: replot + inter-band renorm
+├── 02_fink_block_lightcurves_replot_lmcsmc.ipynb          # variant: LMC/SMC replot
+├── 03_fink_add_visitId.ipynb                              # add Rubin visit identifiers
+├── 04_fink_selectDIAObject_tovisitIddetector.ipynb        # select objects by visit & detector
+├── 05_fink_download_objects.ipynb                         # download object-level aggregate summary
+├── 06_fink_color_color_diagram.ipynb                      # colour-colour diagram (G−R) vs (R−I)
+├── 07_fink_tags_lightcurves.ipynb                         # tag strategy: data retrieval & analysis
+├── 08_fink_tags_lightcurves_replot.ipynb                  # tag strategy: offline re-visualisation
+├── 08_fink_tags_lightcurves_replot_renormalize.ipynb      # tag strategy: replot + inter-band renorm
 │
-├── README.md                                          # this file
+├── README.md                                              # this file
 │
-├── lsst_meridian_visibility.py                        # helper: LSST meridian visibility curves
-├── lsst_meridian_visibility_fr.py                     # idem (French labels)
+├── lsst_meridian_visibility.py                            # helper: LSST meridian visibility curves
+├── lsst_meridian_visibility_fr.py                         # idem (French labels)
 │
-├── data_FINK_BLOCK_LC_01/                             # block strategy outputs
+├── data_FINK_BLOCK_LC_01/                                 # block strategy outputs
 │   ├── flatness_metrics.csv
 │   ├── objects_all.parquet / objects_all.csv
 │   ├── visit_index.csv / visit_index_fp.csv
@@ -414,7 +512,7 @@ made** — and reproduces or extends the same set of plots.
 │   ├── unclassified_fp.parquet
 │   └── unclassified_src.parquet
 │
-├── data_FINK_BLOCK_LC_07/                             # tag strategy outputs
+├── data_FINK_BLOCK_LC_07/                                 # tag strategy outputs
 │   ├── flatness_metrics.csv
 │   ├── tag_ranking.csv
 │   ├── visit_index.csv / visit_index_fp.csv
@@ -430,14 +528,16 @@ made** — and reproduces or extends the same set of plots.
 │   ├── sn_near_galaxy_candidate_fp.parquet
 │   └── sn_near_galaxy_candidate_src.parquet
 │
-├── data_FINK_BLOCK_LC_LMCSMC/                        # LMC/SMC variant outputs
+├── data_FINK_BLOCK_LC_LMCSMC/                            # LMC/SMC variant outputs
 │
-├── figs_FINK_BLOCK_LC_01/                            # figures from notebook 01
-├── figs_FINK_BLOCK_LC_01_02/                         # figures from notebooks 02 & 06
-├── figs_FINK_BLOCK_LC_01_AUG/                        # figures from augmented variant
-├── figs_FINK_BLOCK_LC_07/                            # figures from notebook 07
-├── figs_FINK_BLOCK_LC_07_08/                         # figures from notebook 08
-└── figs_FINK_BLOCK_LC_LMCSMC/                        # figures for LMC/SMC variant
+├── figs_FINK_BLOCK_LC_01/                                # figures from notebook 01
+├── figs_FINK_BLOCK_LC_01_01_02/                          # figures from notebooks 02 & 06
+├── figs_FINK_BLOCK_LC_01_02/                             # figures from notebooks 02 & 02-renorm
+├── figs_FINK_BLOCK_LC_01_AUG/                            # figures from augmented block variant
+├── figs_FINK_BLOCK_LC_07/                                # figures from notebook 07
+├── figs_FINK_BLOCK_LC_07_08/                             # figures from notebook 08
+├── figs_FINK_BLOCK_LC_07_08renorm/                       # figures from notebook 08-renorm
+└── figs_FINK_BLOCK_LC_LMCSMC/                            # figures for LMC/SMC variant
 ```
 
 ---
@@ -449,13 +549,15 @@ The notebooks must be run in order, as each one depends on outputs from the prev
 ```
 Block strategy
 ──────────────
-01  →  02  (optional offline replot, no API call)
+01  →  02          (optional offline replot, no API call)
+01  →  02-renorm   (optional: replot + inter-band renorm, no API call)
 01  →  03  →  04
 01  →  05  →  06
 
 Tag strategy
 ────────────
-07  →  08  (optional offline replot, no API call)
+07  →  08          (optional offline replot, no API call)
+07  →  08-renorm   (optional: replot + inter-band renorm, no API call)
 ```
 
 The two strategies are independent: notebooks 07–08 do not depend on 01–06.
@@ -489,6 +591,10 @@ or activate the `conda_py313` environment already configured for this project.
   client-side via `f:xm_*` crossmatch columns.
 - The `/api/v1/tags` endpoint does **not** support spatial (RA/Dec/radius)
   filtering; spatial selection must be applied client-side after the global fetch.
+- Some Fink tags (notably `extragalactic_new_candidate`) return objects with
+  **no forced-photometry data** because the sources are too recent.  The
+  `_fp.parquet` files for these tags may be empty; notebooks 08 and 08-renorm
+  handle this with explicit sanitisation and safe accessor helpers.
 - Endpoints used across the notebooks:
 
 | Endpoint | Method | Used in |
