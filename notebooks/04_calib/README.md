@@ -2,8 +2,8 @@
 
 **Author:** Sylvie Dagoret-Campagne (IJCLab / IN2P3 / CNRS)  
 **Project:** Rubin LSST — Fink Alert Broker photometric calibration diagnostics  
-**Creation date:** 2026-04-02
-**Last update:** 2026-04-02
+**Creation date:** 2026-04-02  
+**Last update:** 2026-04-08
 
 ---
 
@@ -13,7 +13,7 @@ This directory contains a pipeline of Jupyter notebooks for photometric calibrat
 diagnostics using Fink broker alert data from the Rubin LSST Deep Drilling Fields (DDFs).
 The pipeline starts from raw Fink API queries, builds enriched light-curve tables,
 and produces a variety of calibration figures — including relative-flux light curves,
-PSF-vs-aperture zero-point proxies, and focal-plane heatmaps.
+PSF/science/template flux comparisons, zero-point proxies, and focal-plane heatmaps.
 
 All notebooks use the `conda_py313` kernel (Python 3.13).  
 All comments, docstrings, and variable names are in **English**.
@@ -26,6 +26,7 @@ All comments, docstrings, and variable names are in **English**.
 |---|---|
 | `data_FINK_BLOCK_LC_01/` | Raw Fink src and fp parquet files + flatness metrics CSV |
 | `data_FINK_BLOCK_LC_03/` | Enriched alert tables joined with Rubin visit metadata |
+| `data_FINK_BLOCK_LC_03b/` | Figures produced by notebook 03b |
 | `data_FocalPlane/` | LSSTCam focal-plane geometry (`ccd_geometry.csv`) |
 
 ---
@@ -70,6 +71,17 @@ All comments, docstrings, and variable names are in **English**.
 
 ---
 
+### `03b_check-RubinVisits.ipynb`
+
+**Purpose:** Diagnostic notebook to inspect and validate the Rubin visit metadata tables before and after the join with Fink alerts.
+
+- Reads the raw Butler visitTable (`visitTable-*_WithTracts.parquet`, N ≈ 52 k visits) and consDb visitTable (`constDbVisitTable-*_WithTracts.parquet`, N ≈ 85 k visits) from `../05_runbindata_visits/data_fromlsst/`.
+- Checks column availability, dtype consistency, and coverage of the 13-digit visit IDs present in the Fink alert tables.
+- Produces diagnostic plots (visit count distributions, band coverage, temporal coverage) saved to `data_FINK_BLOCK_LC_03b/`.
+- Serves as a sanity check prior to running notebook 03.
+
+---
+
 ### `04_relativeFlux.ipynb`
 
 **Purpose:** Display relative-flux PSF and aperture light curves for the top-ranked DIA objects.
@@ -104,6 +116,17 @@ All comments, docstrings, and variable names are in **English**.
 - **Visual convention:** src = filled circle; fp = hollow circle with edge colour = band colour.
 - 7-panel layout per object; subplot 7 shows all bands with the same src/fp encoding.
 - Outputs a summary CSV with σ(src ratio) and fp counts per object and band.
+
+---
+
+### `04c02_relativeFlux_withfp_showdetectors.ipynb`
+
+**Purpose:** Variant of `04c` where each measurement is colour-coded by **detector number (CCD ID)** instead of photometric band.
+
+- Same data sources and normalisation as `04c` (src from `data_FINK_BLOCK_LC_03/`, fp from `data_FINK_BLOCK_LC_01/`).
+- Uses a discrete `tab20 + tab20b` palette so that different CCDs are visually separable even when multiple detectors appear on the same light curve.
+- Per-band subplots each carry a legend of the detector IDs present in that band.
+- **Scientific motivation:** distinguishing detector-to-detector calibration offsets (CCD-clustered deviations) from time-variable calibration issues (epoch-correlated deviations regardless of CCD).
 
 ---
 
@@ -158,8 +181,90 @@ $$\sigma_{\Delta m} = \frac{2.5}{\ln 10}\,\sqrt{\left(\frac{\sigma_{\rm psf}}{F_
 - Produces a dual focal-plane figure:
   - **Left panel:** median Δm — diverging colormap `RdBu_r` centred on 0 (red = PSF brighter than aperture, blue = aperture brighter).
   - **Right panel:** RMS σ(Δm) — sequential colormap `plasma` (dark = stable, bright = unstable).
-- A bonus section (section 9) repeats the same 1×2 figure for each photometric band `u g r i z y` to reveal chromatic dependencies.
+- A bonus section repeats the same 1×2 figure for each photometric band `u g r i z y` to reveal chromatic dependencies.
 - Saves a per-CCD summary CSV `ccd_zp_proxy_summary.csv`.
+
+---
+
+### `05c_fink_block_FluxThreshold.ipynb`
+
+**Purpose:** Characterise the per-CCD **detection threshold** as a function of focal-plane radius, using the median PSF flux of detected src alerts as a proxy.
+
+- Reads src Parquet files from `data_FINK_BLOCK_LC_01/`.
+- Produces three types of output figures:
+  1. **All-band focal-plane heatmap** (1×2): median psfFlux and median magnitude aggregated over all bands (global overview).
+  2. **Per-band focal-plane heatmap** (6×2 grid): one row per band `u g r i z y`; left column = median psfFlux, right column = median magnitude; independent colour scale per row; shared horizontal colour bar per column at the bottom.
+  3. **Per-band radial error plots** (6×2 grid): median psfFlux (left) and median magnitude (right) vs. focal-plane radius r; one row per band; per-CCD uncertainty estimated as σ_med ≈ 1.4826 × MAD / √N.
+- **Motivation:** a higher median detected flux signals a deeper detection threshold; the radial profile reveals PSF degradation or background increase at large focal-plane radii.
+- No functional fit is applied; the goal is pure shape visualisation before selecting a fitting function.
+
+---
+
+### `06_relativeFlux_science.ipynb`
+
+**Purpose:** Investigate whether light-curve variability for stable Gaia stars originates from the **science image flux** (`scienceFlux`) or from a defective **template** (`templateFlux`).
+
+- Exploits the DIA identity: `psfFlux = scienceFlux − templateFlux`.
+- For each top-N DIA object, three sets of 7-panel plots (6 bands + combined) with shared x/y axes across band panels:
+  1. `scienceFlux / median(scienceFlux)` per band (Section 6).
+  2. Overlay of `scienceFlux/median` (●) vs `psfFlux/median` (□) (Section 7).
+  3. Estimated template `templateFlux_est = scienceFlux − psfFlux`, normalised to its median (Section 8).
+- Derived from `04_relativeFlux.ipynb`; data source: `data_FINK_BLOCK_LC_03/`.
+
+---
+
+### `07_psfFlux_scienceFlux_templateFlux.ipynb`
+
+**Purpose:** Display raw (non-normalised) flux light curves in nJy for `psfFlux` and `scienceFlux` side by side, to directly compare absolute flux levels and measurement uncertainties.
+
+- No normalisation or ratio is applied — absolute nJy values are shown.
+- Two sets of 7-panel figures per DIA object (6 bands + combined):
+  1. **Section 6** — one figure per object, with shared x and y axes across band panels.
+  2. **Section 7** — one figure per band, accumulating all top-N objects on the same axes (different colours per object).
+- Follows `06_relativeFlux_science.ipynb`; data source: `data_FINK_BLOCK_LC_03/`.
+
+---
+
+### `07b_psfFlux_scienceFlux_templateFlux_compairmass.ipynb`
+
+**Purpose:** Same three-flux raw display as notebook 07, but with all measurements **colour-coded by airmass** X = 1/cos(z).
+
+- Three series per panel per object: `scienceFlux` (filled ●), `psfFlux` (open □), `templateFlux_est` (open ◇), all coloured by airmass via the `jet` colourmap (blue = low X, red = high X).
+- Shared vertical colour-bar (airmass) to the right of each 7-panel row.
+- Allows visual identification of airmass-driven systematic offsets in any of the three flux components.
+- Layout: `u | g | r | i | z | y | all-bands ‖ cbar`.
+
+---
+
+### `07c_psfFlux_scienceFlux_templateFlux_showdetector.ipynb`
+
+**Purpose:** Same three-flux raw display as notebook 07, but with measurements **colour-coded by detector number (CCD)**.
+
+- Uses the same discrete `tab20 + tab20b` palette as `04c02`.
+- Layout per object: 7 flux panels (top row) + 1 dedicated CCD legend strip (bottom row).
+- Each flux panel shows `scienceFlux` (●), `psfFlux` (□), `templateFlux_est` (◇) with CCD colour on the edge of open markers.
+- Enables direct identification of CCD-dependent systematics in the raw DIA fluxes.
+
+---
+
+### `07d_psfFlux_scienceFlux_templateFlux_compseeing.ipynb`
+
+**Purpose:** Same three-flux raw display as notebook 07, but with measurements **colour-coded by seeing** (PSF FWHM).
+
+- Identical layout to `07b` (7 panels + shared vertical colour-bar), but the continuous colourmap encodes seeing instead of airmass.
+- Allows diagnosing whether flux scatter in `psfFlux`, `scienceFlux`, or `templateFlux_est` is correlated with atmospheric seeing conditions.
+
+---
+
+### `07e_psfFlux_scienceFlux_templateFlux_FocalPlane.ipynb`
+
+**Purpose:** Correlate flux light-curve variability with the **trajectory of observations across the LSSTCam focal plane** for each DIA object.
+
+- Layout per object: **2 rows × 6 columns** (one column per band `u g r i z y`):
+  - **Top row:** `psfFlux`, `scienceFlux`, `templateFlux_est` vs Δt, colour-coded by time (jet: blue = earliest, red = latest).
+  - **Bottom row:** LSSTCam focal-plane map with grey CCD patches; visited CCDs are scatter-plotted with the same time colour-map; multiple visits to the same CCD are shown with random jitter for visibility.
+- **Key diagnostic:** if flux anomalies in the top row cluster on the same CCD in the bottom row, that CCD is likely responsible for the observed variability.
+- Follows `07c_psfFlux_scienceFlux_templateFlux_showdetector.ipynb`.
 
 ---
 
@@ -181,14 +286,28 @@ Fink API
    │
    ├──► 04_relativeFlux.ipynb
    ├──► 04b_relativeFlux_compairmass.ipynb
-   ├──► 04c_relativeFlux_withfp.ipynb  ◄── also reads data_FINK_BLOCK_LC_01/ (fp)
-   ├──► 04d_relativeFlux_withfp_alllcinDDF.ipynb  ◄── also reads data_FINK_BLOCK_LC_01/ (fp)
-   └──► 04e_relativeFlux_ZP.ipynb
+   ├──► 04c_relativeFlux_withfp.ipynb            ◄── also reads data_FINK_BLOCK_LC_01/ (fp)
+   ├──► 04c02_relativeFlux_withfp_showdetectors.ipynb  ◄── also reads data_FINK_BLOCK_LC_01/ (fp)
+   ├──► 04d_relativeFlux_withfp_alllcinDDF.ipynb ◄── also reads data_FINK_BLOCK_LC_01/ (fp)
+   ├──► 04e_relativeFlux_ZP.ipynb
+   ├──► 06_relativeFlux_science.ipynb
+   ├──► 07_psfFlux_scienceFlux_templateFlux.ipynb
+   ├──► 07b_psfFlux_scienceFlux_templateFlux_compairmass.ipynb
+   ├──► 07c_psfFlux_scienceFlux_templateFlux_showdetector.ipynb
+   ├──► 07d_psfFlux_scienceFlux_templateFlux_compseeing.ipynb
+   └──► 07e_psfFlux_scienceFlux_templateFlux_FocalPlane.ipynb
+
+Butler visitTable + consDb visitTable
+   ├──► 03b_check-RubinVisits.ipynb   (validation / diagnostics)
+   └──► 03_associateFinkAlerts-RubinVisits.ipynb
 
 data_FINK_BLOCK_LC_01/  ──► 05_fink_block_AlertsStatistic_PlotFocalPlane.ipynb
 data_FINK_BLOCK_LC_01/  ──► 05b_fink_block_ZP.ipynb
+data_FINK_BLOCK_LC_01/  ──► 05c_fink_block_FluxThreshold.ipynb
 data_FocalPlane/        ──► 05_fink_block_AlertsStatistic_PlotFocalPlane.ipynb
 data_FocalPlane/        ──► 05b_fink_block_ZP.ipynb
+data_FocalPlane/        ──► 05c_fink_block_FluxThreshold.ipynb
+data_FocalPlane/        ──► 07e_psfFlux_scienceFlux_templateFlux_FocalPlane.ipynb
 ```
 
 ---
