@@ -1,0 +1,35 @@
+(conda_py313) dagoret@mac371:~/Desktop/RubinLSSTSkyAlerts/datatransfert/fink_datatransfer/fink_datatransfer_sn/2026-05-06_transf01[26-sn-with-tns%] $ fink_datatransfer -survey lsst -topic ftransfer_lsst_2026-05-06_481298 -outdir ftransfer_lsst_2026-05-06_481298 --dump_schemas --verbose
+Topic [Partition]                                   Committed        Lag
+========================================================================
+ftransfer_lsst_2026-05-06_481298 [0]                        -          0
+ftransfer_lsst_2026-05-06_481298 [1]                        -          0
+ftransfer_lsst_2026-05-06_481298 [2]                        -          0
+ftransfer_lsst_2026-05-06_481298 [3]                        -          1
+ftransfer_lsst_2026-05-06_481298 [4]                        -          0
+ftransfer_lsst_2026-05-06_481298 [5]                        -          1
+ftransfer_lsst_2026-05-06_481298 [6]                        -          0
+ftransfer_lsst_2026-05-06_481298 [7]                        -          0
+ftransfer_lsst_2026-05-06_481298 [8]                        -          1
+ftransfer_lsst_2026-05-06_481298 [9]                        -          0
+------------------------------------------------------------------------
+Total for ftransfer_lsst_2026-05-06_481298                  0          3
+------------------------------------------------------------------------
+Consumer 0: 0 alerts [?alerts/s]                                                                                                       | 0/3 [00:01<?, ?it/s]
+Consumer 4: 0 alerts [?alerts/s]███████████████████████████████████████████████████████████████████████████████████████████████| 3/3 [00:03<00:00, 28.62it/s]
+Consumer 3: 1 alerts [ 1.90s/alerts]
+
+Consumer 8: 1 alerts [ 1.86s/alerts]
+Consumer 2: 0 alerts [?alerts/s]
+Consumer 5: 1 alerts [ 2.48s/alerts]
+Consumer 9: 0 alerts [?alerts/s]
+Consumer 6: 0 alerts [?alerts/s]
+Consumer 7: 0 alerts [?alerts/s]
+Dowloading: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████| 3/3 [00:07<00:00,  2.42s/it]
+Topic [Partition]                                   Committed        Lag
+========================================================================
+ftransfer_lsst_2026-05-06_481298 [3]                        1          0
+ftransfer_lsst_2026-05-06_481298 [5]                        1          0
+ftransfer_lsst_2026-05-06_481298 [8]                        1          0
+------------------------------------------------------------------------
+Total for ftransfer_lsst_2026-05-06_481298                  3          0
+------------------------------------------------------------------------
