@@ -1,0 +1,13 @@
+blocks: []
+catalog_filename: null
+content:
+- Full packet
+dates:
+  startdate: '2025-10-25'
+  stopdate: '2026-05-06'
+extra_cond:
+- diaSource.psfFlux > 1350
+- diaObject.nDiaSources > 100
+- xm.tns_type IN ('SN Ia', 'SN II')
+filters:
+- in_tns
