@@ -105,7 +105,7 @@ COLUMNS_SOURCES = ",".join(
 )
 
 # Columns to fetch for forced photometry (via /api/v1/fp)
-# Mirror the column set used in 01_fink_block_flatlightcurves.ipynb
+# Mirrors the column set used in 01_fink_block_flatlightcurves.ipynb
 COLUMNS_FP = ",".join(
     [
         "r:diaObjectId",
@@ -128,6 +128,7 @@ COLUMNS_FP = ",".join(
 # Delay between API calls (seconds) — be respectful to the Fink server
 SLEEP_BETWEEN_CALLS = 0.2
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # API helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,27 +136,20 @@ SLEEP_BETWEEN_CALLS = 0.2
 
 def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     """
-    Fetch all diaSources associated with a given diaObjectId via /api/v1/sources.
-
+    Fetch all diaSources for a diaObjectId via /api/v1/sources.
     Parameters
     ----------
     dia_object_id : int
-        Unique identifier of the diaObject.
+        The diaObjectId for which to fetch diaSources.
 
     Returns
     -------
-    pd.DataFrame
-        All diaSources sorted by midpointMjdTai ascending.
-        Empty DataFrame on failure.
+    Returns a DataFrame sorted by midpointMjdTai, or empty on failure.
     """
     print(f"  Fetching diaSources for diaObjectId={dia_object_id} ...")
     r = requests.get(
         f"{FINK_API}/sources",
-        params={
-            "diaObjectId": dia_object_id,
-            "columns": COLUMNS_SOURCES,
-            "output-format": "json",
-        },
+        params={"diaObjectId": dia_object_id, "columns": COLUMNS_SOURCES, "output-format": "json"},
         timeout=60,
     )
     if r.status_code != 200 or not r.text.strip():
@@ -166,7 +160,6 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     except Exception as e:
         print(f"  ✗ /sources JSON parse error: {e}")
         return pd.DataFrame()
-
     df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
     print(f"  ✓ {len(df)} diaSources  bands: {sorted(df['r:band'].unique())}")
     return df
@@ -174,31 +167,21 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
 
 def fetch_fp(dia_object_id: int) -> pd.DataFrame:
     """
-    Fetch forced photometry for a given diaObjectId via /api/v1/fp.
-
-    The forced-photometry endpoint returns upper-limit flux measurements at
-    the object position for visits in which no detection was triggered,
-    as well as detections flagged with r:forced=True.
+    Fetch forced photometry for a diaObjectId via /api/v1/fp.
 
     Parameters
     ----------
     dia_object_id : int
-        Unique identifier of the diaObject.
+        The diaObjectId for which to fetch forced photometry.
 
     Returns
     -------
-    pd.DataFrame
-        Forced-photometry table sorted by midpointMjdTai ascending.
-        Empty DataFrame on failure or if no fp data are available.
+    Returns a DataFrame sorted by midpointMjdTai, or empty on failure.
     """
     print(f"  Fetching forced photometry for diaObjectId={dia_object_id} ...")
     r = requests.get(
         f"{FINK_API}/fp",
-        params={
-            "diaObjectId": dia_object_id,
-            "columns": COLUMNS_FP,
-            "output-format": "json",
-        },
+        params={"diaObjectId": dia_object_id, "columns": COLUMNS_FP, "output-format": "json"},
         timeout=60,
     )
     if r.status_code != 200 or not r.text.strip():
@@ -209,11 +192,9 @@ def fetch_fp(dia_object_id: int) -> pd.DataFrame:
     except Exception as e:
         print(f"  ✗ /fp JSON parse error: {e}")
         return pd.DataFrame()
-
     if df.empty:
         print("  ✓ /fp returned empty table (no forced photometry available)")
         return df
-
     df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
     print(f"  ✓ {len(df)} fp points  bands: {sorted(df['r:band'].unique())}")
     return df
@@ -221,29 +202,26 @@ def fetch_fp(dia_object_id: int) -> pd.DataFrame:
 
 def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
     """
-    Fetch one cutout (Science | Template | Difference) for a diaSourceId.
+    Fetch one cutout stamp for a diaSourceId.
 
     Parameters
     ----------
     dia_source_id : int
-        Unique identifier of the diaSource.
-    kind : str
-        One of 'Science', 'Template', 'Difference'.
+        The diaSourceId for which to fetch the cutout.
+    kind : str — 'Science', 'Template', or 'Difference'
+        the type of cutout to fetch.
 
     Returns
     -------
-    np.ndarray of shape (H, W) dtype float32, or None on failure.
+    np.ndarray of shape (H, W) float32, or None on failure.
     """
     r = requests.get(
         f"{FINK_API}/cutouts",
-        params={
-            "diaSourceId": dia_source_id,
-            "kind": kind,
-            "output-format": "array",
-        },
+        params={"diaSourceId": dia_source_id, "kind": kind, "output-format": "array"},
         timeout=30,
     )
     if r.status_code != 200 or not r.content:
+        print(f"    ✗ cutout {kind} HTTP {r.status_code} for diaSourceId={dia_source_id}")
         return None
     try:
         data = r.json()
@@ -256,29 +234,21 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
 
 def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
     """
-    Fetch Science, Template and Difference cutouts for one diaSourceId.
+    Fetch Science, Template, and Difference cutouts for one diaSourceId.
 
     Parameters
     ----------
     dia_source_id : int
-        Unique identifier of the diaSource for which the cutouts are requested.
+        The diaSourceId for which to fetch cutouts.
+    kind : str — 'Science', 'Template', or 'Difference'
+        the type of cutout to fetch.
 
     Returns
     -------
-    dict of str to np.ndarray or None
-        Dictionary containing the cutouts as NumPy arrays, with keys:
-        - "science": science image cutout
-        - "template": template image cutout
-        - "difference": difference image cutout
-
-        Returns None if no cutouts are available or if the request fails.
-
-    Notes
-    -----
-    Each cutout is expected to be a 2D array representing pixel values.
-    Missing individual cutouts may be omitted from the dictionary depending
-    on the data availability.
-
+    dict[str, np.ndarray] | None
+        A dictionary mapping cutout types  {'Science': arr, 'Template': arr, 'Difference': arr},
+    or None if any of the three requests fails.
+    """
     cutouts = {}
     for kind in ["Science", "Template", "Difference"]:
         arr = fetch_single_cutout(dia_source_id, kind)
@@ -287,7 +257,6 @@ def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
         cutouts[kind] = arr
         time.sleep(SLEEP_BETWEEN_CALLS)
     return cutouts
-    """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,27 +274,25 @@ def download_full_cutouts(
 
     Steps
     -----
-    1. Fetch all diaSources via /api/v1/sources → manifest.{csv,parquet}
-    2. For each diaSource fetch the 3 cutout stamps → cutouts/*.npy
-    3. Fetch forced photometry via /api/v1/fp    → manifest_fp.{csv,parquet}
+    1. Fetch all diaSources via /api/v1/sources  →  manifest.{csv,parquet}
+    2. For each diaSource fetch the 3 stamps     →  cutouts/*.npy
+    3. Fetch forced photometry via /api/v1/fp    →  manifest_fp.{csv,parquet}
 
     Parameters
     ----------
     dia_object_id : int
-        The LSST diaObjectId to process.
-    outdir : Path, optional
-        Root output directory.  Defaults to ./fullcutouts_{dia_object_id}/
+        diaObjectId for which to download cutouts and forced photometry.
+    outdir        : str, optional —
+        Path to the output directory. Defaults to ./fullcutouts_{dia_object_id}/
     skip_existing : bool
-        If True, skip diaSources whose cutout files already exist on disk.
+        if True, skip diaSources already on disk
 
     Returns
     -------
-    Path
-        Path to the output directory.
+    Path — the output directory
     """
     if outdir is None:
         outdir = Path(f"fullcutouts_{dia_object_id}")
-
     cutout_dir = outdir / "cutouts"
     cutout_dir.mkdir(parents=True, exist_ok=True)
 
@@ -343,9 +310,8 @@ def download_full_cutouts(
     n_sources = len(df_sources)
     print(f"\n  Processing {n_sources} diaSources ...\n")
 
-    # ── Step 2: download cutouts for each diaSource ───────────────────────────
+    # ── Step 2: download cutout stamps ───────────────────────────────────────
     results = []
-
     for i, row in df_sources.iterrows():
         src_id = int(row["r:diaSourceId"])
         band = row["r:band"]
@@ -357,6 +323,7 @@ def download_full_cutouts(
         paths = {
             kind: cutout_dir / f"{src_id}_{band}_{kind}.npy" for kind in ["Science", "Template", "Difference"]
         }
+
         if skip_existing and all(p.exists() for p in paths.values()):
             print("           → already on disk, skipping")
             status = "skipped"
@@ -430,7 +397,7 @@ def download_full_cutouts(
     df_manifest.to_csv(outdir / "manifest.csv", index=False)
     print(f"\n  manifest saved → {outdir / 'manifest.csv'}")
 
-    # ── Step 4: fetch forced photometry ──────────────────────────────────────
+    # ── Step 4: fetch and save forced photometry ──────────────────────────────
     print()
     df_fp = fetch_fp(dia_object_id)
     if not df_fp.empty:
@@ -444,7 +411,6 @@ def download_full_cutouts(
     n_ok = (df_manifest["status"] == "ok").sum()
     n_skip = (df_manifest["status"] == "skipped").sum()
     n_fail = (df_manifest["status"] == "failed").sum()
-
     print(f"\n{'=' * 60}")
     print("Done.")
     print(f"  ✓ Cutouts downloaded  : {n_ok}")
@@ -461,7 +427,6 @@ def download_full_cutouts(
         for band, grp in df_fp.groupby("r:band"):
             print(f"  {band} : {len(grp):3d} fp points")
     print(f"{'=' * 60}")
-
     return outdir
 
 
@@ -473,22 +438,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Download all cutouts + forced photometry for a single LSST diaObjectId."
     )
+    parser.add_argument("--obj_id", type=int, required=True, help="diaObjectId (e.g. 170032915988086813)")
     parser.add_argument(
-        "--obj_id",
-        type=int,
-        required=True,
-        help="diaObjectId to download (e.g. 170032915988086813)",
+        "--outdir", type=str, default=None, help="Output directory (default: ./fullcutouts_{obj_id}/)"
     )
     parser.add_argument(
-        "--outdir",
-        type=str,
-        default=None,
-        help="Output directory (default: ./fullcutouts_{obj_id}/)",
-    )
-    parser.add_argument(
-        "--no_skip",
-        action="store_true",
-        help="Re-download even if cutout files already exist on disk",
+        "--no_skip", action="store_true", help="Re-download even if cutout files already exist"
     )
     args = parser.parse_args()
 
