@@ -1,36 +1,42 @@
 """
 fink_download_full_cutouts.py
 ==============================
-Download ALL cutouts (Science + Template + Difference) for a single diaObject,
-across ALL its diaSources (all observations, all filters).
+Download ALL cutouts (Science + Template + Difference) AND forced photometry
+for a single diaObject, across ALL its diaSources (all observations, all filters).
 
 For a given diaObjectId:
   1. Fetch the complete list of diaSources via /api/v1/sources
   2. For each diaSource (each observation epoch × filter):
        - Download the 3 cutouts (Science, Template, Difference)
        - Save as individual .npy files
-  3. Save a manifest CSV with all diaSource metadata
+  3. Fetch forced photometry (upper limits + detections) via /api/v1/fp
+  4. Save:
+       - manifest.{csv,parquet}        — diaSource metadata (incl. dipole columns)
+       - manifest_fp.{csv,parquet}     — forced photometry table
 
 Output structure:
   fullcutouts_{diaObjectId}/
     manifest.parquet          # all diaSource metadata, time-sorted
     manifest.csv              # same, human-readable
+    manifest_fp.parquet       # forced photometry, time-sorted
+    manifest_fp.csv           # same, human-readable
     cutouts/
-      {diaSourceId}_{band}_Science.npy      # shape (H, W)
+      {diaSourceId}_{band}_Science.npy
       {diaSourceId}_{band}_Template.npy
       {diaSourceId}_{band}_Difference.npy
 
 Column naming convention (LSST DPDD schema):
-  - Prefix 'r:' → diaSource table field (NOT the spectral band 'r')
+  - Prefix 'r:' → diaSource / diaObject table field (NOT the spectral band 'r')
   - Prefix 'f:' → Fink-computed field (classifiers, cross-matches)
   - Spectral band → value of column r:band ∈ {u, g, r, i, z, y}
 
 Usage:
   python fink_download_full_cutouts.py --obj_id 170032915988086813
   python fink_download_full_cutouts.py --obj_id 170032915988086813 --outdir ./my_output
+  python fink_download_full_cutouts.py --obj_id 170032915988086813 --no_skip
 
 Author : dagoret
-Date   : 2026-02
+Date   : 2026-05
 """
 
 import argparse
@@ -48,7 +54,7 @@ import requests
 
 FINK_API = "https://api.lsst.fink-portal.org/api/v1"
 
-# Columns to fetch for each diaSource
+# Columns to fetch for each diaSource (via /api/v1/sources)
 COLUMNS_SOURCES = ",".join(
     [
         "r:diaObjectId",
@@ -65,15 +71,28 @@ COLUMNS_SOURCES = ",".join(
         "r:extendedness",
         "r:psfChi2",
         "r:visit",
-        "r:detector,r:x,r:y,r:xErr,r:yErr,r:scienceFlux",
+        "r:detector",
+        "r:x",
+        "r:y",
+        "r:xErr",
+        "r:yErr",
+        "r:scienceFlux",
         "r:scienceFluxErr",
         "r:templateFlux",
         "r:templateFluxErr",
-        "r:apFlux,r:apFluxErr,"
-        "r:isDipole,r:isNegative,r:dipoleFitAttempted,"
-        "r:dipoleFluxDiff,r:dipoleFluxDiffErr,"
-        "r:dipoleMeanFlux,r:dipoleMeanFluxErr,"
-        "r:dipoleLength,r:dipoleAngle,r:dipoleNdata,r:dipoleChi2,"
+        "r:apFlux",
+        "r:apFluxErr",
+        "r:isDipole",
+        "r:isNegative",
+        "r:dipoleFitAttempted",
+        "r:dipoleFluxDiff",
+        "r:dipoleFluxDiffErr",
+        "r:dipoleMeanFlux",
+        "r:dipoleMeanFluxErr",
+        "r:dipoleLength",
+        "r:dipoleAngle",
+        "r:dipoleNdata",
+        "r:dipoleChi2",
         "f:clf_snnSnVsOthers_score",
         "f:clf_earlySNIa_score",
         "f:clf_cats_class",
@@ -85,7 +104,28 @@ COLUMNS_SOURCES = ",".join(
     ]
 )
 
-# Delay between API calls to be respectful (seconds)
+# Columns to fetch for forced photometry (via /api/v1/fp)
+# Mirror the column set used in 01_fink_block_flatlightcurves.ipynb
+COLUMNS_FP = ",".join(
+    [
+        "r:diaObjectId",
+        "r:diaForcedSourceId",
+        "r:midpointMjdTai",
+        "r:band",
+        "r:ra",
+        "r:dec",
+        "r:psfFlux",
+        "r:psfFluxErr",
+        "r:visit",
+        "r:detector",
+        "r:x",
+        "r:y",
+        "r:forced",
+        "r:time_processed",
+    ]
+)
+
+# Delay between API calls (seconds) — be respectful to the Fink server
 SLEEP_BETWEEN_CALLS = 0.2
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -95,28 +135,18 @@ SLEEP_BETWEEN_CALLS = 0.2
 
 def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     """
-    Fetch all diaSources associated with a given diaObjectId.
-
-    The data are retrieved via the `/api/v1/sources` endpoint and returned
-    as a pandas DataFrame sorted by `midpointMjdTai` in ascending order.
+    Fetch all diaSources associated with a given diaObjectId via /api/v1/sources.
 
     Parameters
     ----------
     dia_object_id : int
-        Unique identifier of the diaObject for which the diaSources are requested.
+        Unique identifier of the diaObject.
 
     Returns
     -------
-    pandas.DataFrame
-        DataFrame containing all diaSources associated with the input diaObjectId.
-        The table is sorted by `midpointMjdTai` (ascending). Typical columns include
-        time information, flux measurements, and associated metadata.
-
-    Notes
-    -----
-    The exact schema of the returned DataFrame depends on the API response.
-    Missing or invalid responses may result in an empty DataFrame.
-
+    pd.DataFrame
+        All diaSources sorted by midpointMjdTai ascending.
+        Empty DataFrame on failure.
     """
     print(f"  Fetching diaSources for diaObjectId={dia_object_id} ...")
     r = requests.get(
@@ -129,16 +159,63 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
         timeout=60,
     )
     if r.status_code != 200 or not r.text.strip():
-        print(f"  ✗ HTTP {r.status_code} — {r.text[:200]}")
+        print(f"  ✗ /sources HTTP {r.status_code} — {r.text[:200]}")
         return pd.DataFrame()
     try:
         df = pd.read_json(io.BytesIO(r.content))
     except Exception as e:
-        print(f"  ✗ JSON parse error: {e}")
+        print(f"  ✗ /sources JSON parse error: {e}")
         return pd.DataFrame()
 
     df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
-    print(f"  ✓ {len(df)} diaSources found across bands: {sorted(df['r:band'].unique())}")
+    print(f"  ✓ {len(df)} diaSources  bands: {sorted(df['r:band'].unique())}")
+    return df
+
+
+def fetch_fp(dia_object_id: int) -> pd.DataFrame:
+    """
+    Fetch forced photometry for a given diaObjectId via /api/v1/fp.
+
+    The forced-photometry endpoint returns upper-limit flux measurements at
+    the object position for visits in which no detection was triggered,
+    as well as detections flagged with r:forced=True.
+
+    Parameters
+    ----------
+    dia_object_id : int
+        Unique identifier of the diaObject.
+
+    Returns
+    -------
+    pd.DataFrame
+        Forced-photometry table sorted by midpointMjdTai ascending.
+        Empty DataFrame on failure or if no fp data are available.
+    """
+    print(f"  Fetching forced photometry for diaObjectId={dia_object_id} ...")
+    r = requests.get(
+        f"{FINK_API}/fp",
+        params={
+            "diaObjectId": dia_object_id,
+            "columns": COLUMNS_FP,
+            "output-format": "json",
+        },
+        timeout=60,
+    )
+    if r.status_code != 200 or not r.text.strip():
+        print(f"  ✗ /fp HTTP {r.status_code} — {r.text[:200]}")
+        return pd.DataFrame()
+    try:
+        df = pd.read_json(io.BytesIO(r.content))
+    except Exception as e:
+        print(f"  ✗ /fp JSON parse error: {e}")
+        return pd.DataFrame()
+
+    if df.empty:
+        print("  ✓ /fp returned empty table (no forced photometry available)")
+        return df
+
+    df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
+    print(f"  ✓ {len(df)} fp points  bands: {sorted(df['r:band'].unique())}")
     return df
 
 
@@ -146,16 +223,12 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
     """
     Fetch one cutout (Science | Template | Difference) for a diaSourceId.
 
-    The Fink LSST API returns a JSON object with a single key whose value
-    is a 2D list of float32 pixel values.
-
     Parameters
     ----------
     dia_source_id : int
-        Unique identifier of the diaSource for which the cutout is requested.
-    kind : str — 'Science', 'Template', or 'Difference'
-        Type of cutout to fetch. Must be one of 'Science', 'Template', or 'Difference'.
-
+        Unique identifier of the diaSource.
+    kind : str
+        One of 'Science', 'Template', 'Difference'.
 
     Returns
     -------
@@ -174,7 +247,7 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
         return None
     try:
         data = r.json()
-        key = list(data.keys())[0]  # e.g. "b:cutoutScience"
+        key = list(data.keys())[0]
         return np.array(data[key], dtype=np.float32)
     except Exception as e:
         print(f"    ✗ cutout {kind} parse error for diaSourceId={dia_source_id}: {e}")
@@ -205,7 +278,6 @@ def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
     Each cutout is expected to be a 2D array representing pixel values.
     Missing individual cutouts may be omitted from the dictionary depending
     on the data availability.
-    """
 
     cutouts = {}
     for kind in ["Science", "Template", "Difference"]:
@@ -215,6 +287,7 @@ def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
         cutouts[kind] = arr
         time.sleep(SLEEP_BETWEEN_CALLS)
     return cutouts
+    """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -228,20 +301,27 @@ def download_full_cutouts(
     skip_existing: bool = True,
 ) -> Path:
     """
-    Download all cutouts for a diaObjectId across all diaSources and bands.
+    Download all cutouts AND forced photometry for a diaObjectId.
+
+    Steps
+    -----
+    1. Fetch all diaSources via /api/v1/sources → manifest.{csv,parquet}
+    2. For each diaSource fetch the 3 cutout stamps → cutouts/*.npy
+    3. Fetch forced photometry via /api/v1/fp    → manifest_fp.{csv,parquet}
 
     Parameters
     ----------
     dia_object_id : int
         The LSST diaObjectId to process.
     outdir : Path, optional
-        Root output directory. Defaults to ./fullcutouts_{dia_object_id}/
+        Root output directory.  Defaults to ./fullcutouts_{dia_object_id}/
     skip_existing : bool
         If True, skip diaSources whose cutout files already exist on disk.
 
     Returns
     -------
-    Path to the output directory.
+    Path
+        Path to the output directory.
     """
     if outdir is None:
         outdir = Path(f"fullcutouts_{dia_object_id}")
@@ -250,7 +330,7 @@ def download_full_cutouts(
     cutout_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'=' * 60}")
-    print(f"Downloading full cutouts for diaObjectId={dia_object_id}")
+    print(f"Downloading cutouts + fp for diaObjectId={dia_object_id}")
     print(f"Output directory : {outdir.resolve()}")
     print(f"{'=' * 60}")
 
@@ -264,7 +344,7 @@ def download_full_cutouts(
     print(f"\n  Processing {n_sources} diaSources ...\n")
 
     # ── Step 2: download cutouts for each diaSource ───────────────────────────
-    results = []  # list of dicts for the manifest
+    results = []
 
     for i, row in df_sources.iterrows():
         src_id = int(row["r:diaSourceId"])
@@ -274,7 +354,6 @@ def download_full_cutouts(
 
         print(f"  [{i + 1:3d}/{n_sources}]  diaSourceId={src_id}  band={band}  MJD={mjd:.4f}  SNR={snr:.1f}")
 
-        # Check if all 3 cutout files already exist
         paths = {
             kind: cutout_dir / f"{src_id}_{band}_{kind}.npy" for kind in ["Science", "Template", "Difference"]
         }
@@ -313,7 +392,11 @@ def download_full_cutouts(
                 "r:snr": snr,
                 "r:reliability": row.get("r:reliability"),
                 "r:scienceFlux": row.get("r:scienceFlux"),
+                "r:scienceFluxErr": row.get("r:scienceFluxErr"),
                 "r:templateFlux": row.get("r:templateFlux"),
+                "r:templateFluxErr": row.get("r:templateFluxErr"),
+                "r:apFlux": row.get("r:apFlux"),
+                "r:apFluxErr": row.get("r:apFluxErr"),
                 "r:isDipole": row.get("r:isDipole"),
                 "r:isNegative": row.get("r:isNegative"),
                 "r:dipoleFitAttempted": row.get("r:dipoleFitAttempted"),
@@ -339,28 +422,44 @@ def download_full_cutouts(
                 "status": status,
             }
         )
+        time.sleep(SLEEP_BETWEEN_CALLS)
 
-    # ── Step 3: save manifest ─────────────────────────────────────────────────
+    # ── Step 3: save diaSource manifest ──────────────────────────────────────
     df_manifest = pd.DataFrame(results)
     df_manifest.to_parquet(outdir / "manifest.parquet", index=False)
     df_manifest.to_csv(outdir / "manifest.csv", index=False)
+    print(f"\n  manifest saved → {outdir / 'manifest.csv'}")
+
+    # ── Step 4: fetch forced photometry ──────────────────────────────────────
+    print()
+    df_fp = fetch_fp(dia_object_id)
+    if not df_fp.empty:
+        df_fp.to_parquet(outdir / "manifest_fp.parquet", index=False)
+        df_fp.to_csv(outdir / "manifest_fp.csv", index=False)
+        print(f"  manifest_fp saved → {outdir / 'manifest_fp.csv'}")
+    else:
+        print("  No forced photometry saved (empty response).")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     n_ok = (df_manifest["status"] == "ok").sum()
     n_skip = (df_manifest["status"] == "skipped").sum()
     n_fail = (df_manifest["status"] == "failed").sum()
+
     print(f"\n{'=' * 60}")
     print("Done.")
-    print(f"  ✓ Downloaded : {n_ok}")
-    print(f"  → Skipped    : {n_skip}")
-    print(f"  ✗ Failed     : {n_fail}")
-    print(f"  Total        : {n_sources}")
-    print("\nBands observed:")
+    print(f"  ✓ Cutouts downloaded  : {n_ok}")
+    print(f"  → Cutouts skipped     : {n_skip}")
+    print(f"  ✗ Cutouts failed      : {n_fail}")
+    print(f"  Total diaSources      : {n_sources}")
+    if not df_fp.empty:
+        print(f"  fp points downloaded  : {len(df_fp)}")
+    print("\nBands (diaSources):")
     for band, grp in df_manifest.groupby("r:band"):
-        print(f"  {band} : {len(grp)} diaSources")
-    print("\nManifest saved:")
-    print(f"  {outdir / 'manifest.parquet'}")
-    print(f"  {outdir / 'manifest.csv'}")
+        print(f"  {band} : {len(grp):3d} diaSources")
+    if not df_fp.empty:
+        print("\nBands (forced photometry):")
+        for band, grp in df_fp.groupby("r:band"):
+            print(f"  {band} : {len(grp):3d} fp points")
     print(f"{'=' * 60}")
 
     return outdir
@@ -371,7 +470,9 @@ def download_full_cutouts(
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download all cutouts for a single LSST diaObjectId.")
+    parser = argparse.ArgumentParser(
+        description="Download all cutouts + forced photometry for a single LSST diaObjectId."
+    )
     parser.add_argument(
         "--obj_id",
         type=int,
@@ -387,7 +488,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no_skip",
         action="store_true",
-        help="Re-download even if cutout files already exist",
+        help="Re-download even if cutout files already exist on disk",
     )
     args = parser.parse_args()
 
