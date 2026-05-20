@@ -57,21 +57,31 @@ COLUMNS_SOURCES = ",".join(
         "r:band",
         "r:ra",
         "r:dec",
+        "r:target_name",
         "r:psfFlux",
         "r:psfFluxErr",
         "r:snr",
         "r:reliability",
         "r:extendedness",
+        "r:psfChi2",
         "r:visit",
-        "r:scienceFlux",
+        "r:detector,r:x,r:y,r:xErr,r:yErr,r:scienceFlux",
         "r:scienceFluxErr",
         "r:templateFlux",
         "r:templateFluxErr",
-        # Fink classifiers (one value per diaSource)
+        "r:apFlux,r:apFluxErr,"
+        "r:isDipole,r:isNegative,r:dipoleFitAttempted,"
+        "r:dipoleFluxDiff,r:dipoleFluxDiffErr,"
+        "r:dipoleMeanFlux,r:dipoleMeanFluxErr,"
+        "r:dipoleLength,r:dipoleAngle,r:dipoleNdata,r:dipoleChi2,"
         "f:clf_snnSnVsOthers_score",
         "f:clf_earlySNIa_score",
         "f:clf_cats_class",
         "f:clf_cats_score",
+        "f:fxm_gaiadr3_DR3Name",
+        "f:fxm_gaiadr3_Plx",
+        "f:fxm_gaiadr3_VarFlag",
+        "f:fxm_gaiadr3_e_Plx",
     ]
 )
 
@@ -85,8 +95,28 @@ SLEEP_BETWEEN_CALLS = 0.2
 
 def fetch_sources(dia_object_id: int) -> pd.DataFrame:
     """
-    Fetch all diaSources for a given diaObjectId via /api/v1/sources.
-    Returns a DataFrame sorted by midpointMjdTai (ascending).
+    Fetch all diaSources associated with a given diaObjectId.
+
+    The data are retrieved via the `/api/v1/sources` endpoint and returned
+    as a pandas DataFrame sorted by `midpointMjdTai` in ascending order.
+
+    Parameters
+    ----------
+    dia_object_id : int
+        Unique identifier of the diaObject for which the diaSources are requested.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing all diaSources associated with the input diaObjectId.
+        The table is sorted by `midpointMjdTai` (ascending). Typical columns include
+        time information, flux measurements, and associated metadata.
+
+    Notes
+    -----
+    The exact schema of the returned DataFrame depends on the API response.
+    Missing or invalid responses may result in an empty DataFrame.
+
     """
     print(f"  Fetching diaSources for diaObjectId={dia_object_id} ...")
     r = requests.get(
@@ -108,7 +138,7 @@ def fetch_sources(dia_object_id: int) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = df.sort_values("r:midpointMjdTai").reset_index(drop=True)
-    print(f"  ✓ {len(df)} diaSources found across bands: " f"{sorted(df['r:band'].unique())}")
+    print(f"  ✓ {len(df)} diaSources found across bands: {sorted(df['r:band'].unique())}")
     return df
 
 
@@ -122,7 +152,10 @@ def fetch_single_cutout(dia_source_id: int, kind: str) -> np.ndarray | None:
     Parameters
     ----------
     dia_source_id : int
+        Unique identifier of the diaSource for which the cutout is requested.
     kind : str — 'Science', 'Template', or 'Difference'
+        Type of cutout to fetch. Must be one of 'Science', 'Template', or 'Difference'.
+
 
     Returns
     -------
@@ -152,11 +185,28 @@ def fetch_all_cutouts(dia_source_id: int) -> dict[str, np.ndarray] | None:
     """
     Fetch Science, Template and Difference cutouts for one diaSourceId.
 
+    Parameters
+    ----------
+    dia_source_id : int
+        Unique identifier of the diaSource for which the cutouts are requested.
+
     Returns
     -------
-    dict {'Science': array, 'Template': array, 'Difference': array}
-    or None if any cutout fails.
+    dict of str to np.ndarray or None
+        Dictionary containing the cutouts as NumPy arrays, with keys:
+        - "science": science image cutout
+        - "template": template image cutout
+        - "difference": difference image cutout
+
+        Returns None if no cutouts are available or if the request fails.
+
+    Notes
+    -----
+    Each cutout is expected to be a 2D array representing pixel values.
+    Missing individual cutouts may be omitted from the dictionary depending
+    on the data availability.
     """
+
     cutouts = {}
     for kind in ["Science", "Template", "Difference"]:
         arr = fetch_single_cutout(dia_source_id, kind)
@@ -199,10 +249,10 @@ def download_full_cutouts(
     cutout_dir = outdir / "cutouts"
     cutout_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Downloading full cutouts for diaObjectId={dia_object_id}")
     print(f"Output directory : {outdir.resolve()}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # ── Step 1: fetch all diaSources ─────────────────────────────────────────
     df_sources = fetch_sources(dia_object_id)
@@ -222,9 +272,7 @@ def download_full_cutouts(
         mjd = row["r:midpointMjdTai"]
         snr = row.get("r:snr", float("nan"))
 
-        print(
-            f"  [{i+1:3d}/{n_sources}]  diaSourceId={src_id}  " f"band={band}  MJD={mjd:.4f}  SNR={snr:.1f}"
-        )
+        print(f"  [{i + 1:3d}/{n_sources}]  diaSourceId={src_id}  band={band}  MJD={mjd:.4f}  SNR={snr:.1f}")
 
         # Check if all 3 cutout files already exist
         paths = {
@@ -250,17 +298,41 @@ def download_full_cutouts(
                 "r:diaObjectId": dia_object_id,
                 "r:diaSourceId": src_id,
                 "r:midpointMjdTai": mjd,
+                "r:visit": row.get("r:visit"),
+                "r:detector": row.get("r:detector"),
+                "r:x": row.get("r:x"),
+                "r:y": row.get("r:y"),
+                "r:xErr": row.get("r:xErr"),
+                "r:yErr": row.get("r:yErr"),
                 "r:band": band,
                 "r:ra": row.get("r:ra"),
                 "r:dec": row.get("r:dec"),
+                "r:target_name": row.get("r:target_name"),
                 "r:psfFlux": row.get("r:psfFlux"),
                 "r:psfFluxErr": row.get("r:psfFluxErr"),
                 "r:snr": snr,
                 "r:reliability": row.get("r:reliability"),
                 "r:scienceFlux": row.get("r:scienceFlux"),
                 "r:templateFlux": row.get("r:templateFlux"),
+                "r:isDipole": row.get("r:isDipole"),
+                "r:isNegative": row.get("r:isNegative"),
+                "r:dipoleFitAttempted": row.get("r:dipoleFitAttempted"),
+                "r:dipoleFluxDiff": row.get("r:dipoleFluxDiff"),
+                "r:dipoleFluxDiffErr": row.get("r:dipoleFluxDiffErr"),
+                "r:dipoleMeanFlux": row.get("r:dipoleMeanFlux"),
+                "r:dipoleMeanFluxErr": row.get("r:dipoleMeanFluxErr"),
+                "r:dipoleLength": row.get("r:dipoleLength"),
+                "r:dipoleAngle": row.get("r:dipoleAngle"),
+                "r:dipoleNdata": row.get("r:dipoleNdata"),
+                "r:dipoleChi2": row.get("r:dipoleChi2"),
                 "f:clf_snnSnVsOthers_score": row.get("f:clf_snnSnVsOthers_score"),
                 "f:clf_earlySNIa_score": row.get("f:clf_earlySNIa_score"),
+                "f:clf_cats_class": row.get("f:clf_cats_class"),
+                "f:clf_cats_score": row.get("f:clf_cats_score"),
+                "f:fxm_gaiadr3_DR3Name": row.get("f:fxm_gaiadr3_DR3Name"),
+                "f:fxm_gaiadr3_Plx": row.get("f:fxm_gaiadr3_Plx"),
+                "f:fxm_gaiadr3_VarFlag": row.get("f:fxm_gaiadr3_VarFlag"),
+                "f:fxm_gaiadr3_e_Plx": row.get("f:fxm_gaiadr3_e_Plx"),
                 "path_Science": str(paths["Science"]),
                 "path_Template": str(paths["Template"]),
                 "path_Difference": str(paths["Difference"]),
@@ -277,7 +349,7 @@ def download_full_cutouts(
     n_ok = (df_manifest["status"] == "ok").sum()
     n_skip = (df_manifest["status"] == "skipped").sum()
     n_fail = (df_manifest["status"] == "failed").sum()
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Done.")
     print(f"  ✓ Downloaded : {n_ok}")
     print(f"  → Skipped    : {n_skip}")
@@ -289,7 +361,7 @@ def download_full_cutouts(
     print("\nManifest saved:")
     print(f"  {outdir / 'manifest.parquet'}")
     print(f"  {outdir / 'manifest.csv'}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     return outdir
 

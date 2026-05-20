@@ -1,0 +1,17 @@
+blocks:
+- b_outside_galactic_plane_5_deg
+catalog_filename: null
+content:
+- Medium packet
+dates:
+  startdate: '2026-01-01'
+  stopdate: '2026-05-06'
+extra_cond:
+- diaSource.psfFlux > 13500
+- diaObject.nDiaSources > 50
+- diaSource.band = 'g'
+- 31.4 - 2.5 * LOG10(diaSource.scienceFlux) < 21
+- xm.tns_type IN ('SN Ia', 'SN II')
+filters:
+- in_tns
+- sn_near_galaxy_candidate
