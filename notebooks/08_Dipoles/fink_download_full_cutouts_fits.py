@@ -164,12 +164,31 @@ COLUMNS_FP = ",".join(
 SLEEP_BETWEEN_CALLS = 0.2
 
 # FITS cutout output-format string accepted by the Fink API
-FINK_FITS_FORMAT = "fits"
+FINK_FITS_FORMAT = "FITS"
 
+MISSING = -9999.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # API helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def safe_float(x):
+    """
+    Sanitize floats againts nan/inf values which cannot be stored
+    in FITS headers. Returns None if x is not a finite float.
+
+    Args:
+        x (float): The float value to sanitize.
+
+    Returns:
+        float or None: The sanitized float value or None if it's not a finite float.
+    """
+    try:
+        val = float(x)
+        return val if np.isfinite(val) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def fetch_sources(dia_object_id: int) -> pd.DataFrame:
@@ -326,31 +345,28 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     hdr["TARGET"] = (str(row.get("r:target_name", "")), "Deep Drilling Field or target name")
 
     # ── Sky coordinates of the diaSource ────────────────────────────────────
-    hdr["RA_SRC"] = (float(row.get("r:ra", float("nan"))), "[deg] diaSource RA (ICRS)")
-    hdr["DEC_SRC"] = (float(row.get("r:dec", float("nan"))), "[deg] diaSource Dec (ICRS)")
+    hdr["RA_SRC"] = (safe_float(row.get("r:ra")), "[deg] diaSource RA (ICRS)")
+    hdr["DEC_SRC"] = (safe_float(row.get("r:dec")), "[deg] diaSource Dec (ICRS)")
 
     # ── Pixel coordinates on the detector ───────────────────────────────────
-    hdr["X_PIX"] = (float(row.get("r:x", float("nan"))), "[pix] diaSource x on detector")
-    hdr["Y_PIX"] = (float(row.get("r:y", float("nan"))), "[pix] diaSource y on detector")
-    hdr["X_PIXERR"] = (float(row.get("r:xErr", float("nan"))), "[pix] uncertainty on x")
-    hdr["Y_PIXERR"] = (float(row.get("r:yErr", float("nan"))), "[pix] uncertainty on y")
+    hdr["X_PIX"] = (safe_float(row.get("r:x")), "[pix] diaSource x on detector")
+    hdr["Y_PIX"] = (safe_float(row.get("r:y")), "[pix] diaSource y on detector")
+    hdr["X_PIXERR"] = (safe_float(row.get("r:xErr")), "[pix] uncertainty on x")
+    hdr["Y_PIXERR"] = (safe_float(row.get("r:yErr")), "[pix] uncertainty on y")
 
     # ── Photometry ───────────────────────────────────────────────────────────
-    hdr["SNR"] = (float(row.get("r:snr", float("nan"))), "Signal-to-noise ratio (psfFlux / psfFluxErr)")
-    hdr["PSFFLUX"] = (float(row.get("r:psfFlux", float("nan"))), "[nJy] PSF flux")
-    hdr["PSFFLXER"] = (float(row.get("r:psfFluxErr", float("nan"))), "[nJy] PSF flux uncertainty")
-    hdr["SCIFLUX"] = (float(row.get("r:scienceFlux", float("nan"))), "[nJy] Science image flux")
-    hdr["SCIFLERR"] = (float(row.get("r:scienceFluxErr", float("nan"))), "[nJy] Science flux uncertainty")
-    hdr["TPLFLUX"] = (float(row.get("r:templateFlux", float("nan"))), "[nJy] Template image flux")
-    hdr["TPLFLERR"] = (float(row.get("r:templateFluxErr", float("nan"))), "[nJy] Template flux uncertainty")
-    hdr["APFLUX"] = (float(row.get("r:apFlux", float("nan"))), "[nJy] Aperture flux")
-    hdr["APFLERR"] = (float(row.get("r:apFluxErr", float("nan"))), "[nJy] Aperture flux uncertainty")
-    hdr["PSFCHI2"] = (float(row.get("r:psfChi2", float("nan"))), "PSF chi2 of source fit")
-    hdr["RELIAB"] = (float(row.get("r:reliability", float("nan"))), "Source reliability score [0,1]")
-    hdr["EXTEND"] = (
-        float(row.get("r:extendedness", float("nan"))),
-        "Extendedness flag [0=stellar,1=extended]",
-    )
+    hdr["SNR"] = (safe_float(row.get("r:snr")), "Signal-to-noise ratio (psfFlux / psfFluxErr)")
+    hdr["PSFFLUX"] = (safe_float(row.get("r:psfFlux")), "[nJy] PSF flux")
+    hdr["PSFFLXER"] = (safe_float(row.get("r:psfFluxErr")), "[nJy] PSF flux uncertainty")
+    hdr["SCIFLUX"] = (safe_float(row.get("r:scienceFlux")), "[nJy] Science image flux")
+    hdr["SCIFLERR"] = (safe_float(row.get("r:scienceFluxErr")), "[nJy] Science flux uncertainty")
+    hdr["TPLFLUX"] = (safe_float(row.get("r:templateFlux")), "[nJy] Template image flux")
+    hdr["TPLFLERR"] = (safe_float(row.get("r:templateFluxErr")), "[nJy] Template flux uncertainty")
+    hdr["APFLUX"] = (safe_float(row.get("r:apFlux")), "[nJy] Aperture flux")
+    hdr["APFLERR"] = (safe_float(row.get("r:apFluxErr")), "[nJy] Aperture flux uncertainty")
+    hdr["PSFCHI2"] = (safe_float(row.get("r:psfChi2")), "PSF chi2 of source fit")
+    hdr["RELIAB"] = (safe_float(row.get("r:reliability")), "Source reliability score [0,1]")
+    hdr["EXTENDNS"] = (safe_float(row.get("r:extendedness")), "Extendedness flag [0=stellar,1=extended]")
 
     # ── Dipole columns ───────────────────────────────────────────────────────
     isdipole = row.get("r:isDipole", None)
@@ -360,46 +376,43 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     )
     hdr["ISNEG"] = (bool(row.get("r:isNegative", False)), "True if source is negative (below template)")
     hdr["DIPFIT"] = (bool(row.get("r:dipoleFitAttempted", False)), "True if dipole fit was attempted")
-    hdr["DIPLEN"] = (
-        float(row.get("r:dipoleLength", float("nan"))),
-        "[arcsec] Dipole length (lobe separation)",
-    )
-    hdr["DIPANG"] = (float(row.get("r:dipoleAngle", float("nan"))), "[deg]    Dipole angle from dipoleFitter")
+    hdr["DIPLEN"] = (safe_float(row.get("r:dipoleLength")), "[arcsec] Dipole length (lobe separation)")
+    hdr["DIPANG"] = (safe_float(row.get("r:dipoleAngle")), "[deg]    Dipole angle from dipoleFitter")
     # Derived position angle: dipole_PA_deg = (90 - dipoleAngle) mod 360
     raw_ang = row.get("r:dipoleAngle", None)
     if raw_ang is not None and not np.isnan(float(raw_ang)):
         hdr["DIPPA"] = ((90.0 - float(raw_ang)) % 360.0, "[deg] Dipole PA = (90 - dipoleAngle) mod 360")
-    hdr["DIPFDIF"] = (float(row.get("r:dipoleFluxDiff", float("nan"))), "[nJy] Dipole flux difference")
+    hdr["DIPFDIF"] = (safe_float(row.get("r:dipoleFluxDiff")), "[nJy] Dipole flux difference")
     hdr["DIPFDIFE"] = (
-        float(row.get("r:dipoleFluxDiffErr", float("nan"))),
+        safe_float(row.get("r:dipoleFluxDiffErr")),
         "[nJy] Dipole flux difference uncertainty",
     )
-    hdr["DIPFMEAN"] = (float(row.get("r:dipoleMeanFlux", float("nan"))), "[nJy] Dipole mean flux")
+    hdr["DIPFMEAN"] = (safe_float(row.get("r:dipoleMeanFlux")), "[nJy] Dipole mean flux")
     hdr["DIPFMNER"] = (
-        float(row.get("r:dipoleMeanFluxErr", float("nan"))),
+        safe_float(row.get("r:dipoleMeanFluxErr")),
         "[nJy] Dipole mean flux uncertainty",
     )
     hdr["DIPNDATA"] = (int(row.get("r:dipoleNdata", -1)), "Number of pixels in dipole fit")
-    hdr["DIPCHI2"] = (float(row.get("r:dipoleChi2", float("nan"))), "Chi2 of dipole fit")
+    hdr["DIPCHI2"] = (safe_float(row.get("r:dipoleChi2")), "Chi2 of dipole fit")
 
     # ── Fink classifier scores ───────────────────────────────────────────────
     hdr["SNN_SNVA"] = (
-        float(row.get("f:clf_snnSnVsOthers_score", float("nan"))),
+        safe_float(row.get("f:clf_snnSnVsOthers_score")),
         "Fink SNN SN-vs-Others score",
     )
-    hdr["ESNIASC"] = (float(row.get("f:clf_earlySNIa_score", float("nan"))), "Fink early SNIa score")
+    hdr["ESNIASC"] = (safe_float(row.get("f:clf_earlySNIa_score")), "Fink early SNIa score")
     hdr["CATSCLS"] = (str(row.get("f:clf_cats_class", "")), "Fink CATS classifier class")
-    hdr["CATSSC"] = (float(row.get("f:clf_cats_score", float("nan"))), "Fink CATS classifier score")
+    hdr["CATSSC"] = (safe_float(row.get("f:clf_cats_score")), "Fink CATS classifier score")
 
     # ── Gaia DR3 cross-match ─────────────────────────────────────────────────
-    hdr["GAIANAME"] = (str(row.get("f:fxm_gaiadr3_DR3Name", "")), "Gaia DR3 source name (cross-match)")
-    hdr["GAIAPLX"] = (float(row.get("f:fxm_gaiadr3_Plx", float("nan"))), "[mas] Gaia DR3 parallax")
+    hdr["GAIANAME"] = (str(row.get("f:fxm_gaiadr3_DR3Name")), "Gaia DR3 source name (cross-match)")
+    hdr["GAIAPLX"] = (safe_float(row.get("f:fxm_gaiadr3_Plx")), "[mas] Gaia DR3 parallax")
     hdr["GAIAEPLX"] = (
-        float(row.get("f:fxm_gaiadr3_e_Plx", float("nan"))),
+        safe_float(row.get("f:fxm_gaiadr3_e_Plx")),
         "[mas] Gaia DR3 parallax uncertainty",
     )
     gaia_vf = row.get("f:fxm_gaiadr3_VarFlag", None)
-    hdr["GAIAVARFL"] = (str(gaia_vf) if gaia_vf is not None else "", "Gaia DR3 variability flag")
+    hdr["GAIAVRFL"] = (str(gaia_vf) if gaia_vf is not None else "", "Gaia DR3 variability flag")
 
     # ── Observatory metadata ─────────────────────────────────────────────────
     hdr["TELESCOP"] = ("Rubin LSST", "Telescope name")
@@ -407,7 +420,8 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     hdr["OBSLON"] = (RUBIN_LON_DEG, "[deg] Observatory longitude")
     hdr["OBSALT"] = (RUBIN_HEIGHT_M, "[m]   Observatory altitude")
 
-    hdr.add_comment("LSST diaSource cutout with WCS and dipole metadata — fink_download_full_cutouts_fits.py")
+    # hdr.add_comment("LSST diaSource cutout with WCS and dipole metadata — fink_download_full_cutouts_fits.py")
+    hdr.add_comment("fink_download_full_cutouts_fits.py")
 
     return hdul
 
