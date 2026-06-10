@@ -48,6 +48,7 @@ FITS header convention:
         ISDIPOLE → r:isDipole
         DIPLEN   → r:dipoleLength
         DIPANG   → r:dipoleAngle
+        DIPPA    → Dipole direction toward zenith = r:dipoleAngle (CCW from East pixel axis)
         CUTTYPE  → kind ('Science', 'Template', 'Difference')
 
 Column naming convention (LSST DPDD schema):
@@ -452,10 +453,16 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     hdr["DIPFIT"] = (bool(row.get("r:dipoleFitAttempted", False)), "True if dipole fit was attempted")
     hdr["DIPLEN"] = (safe_float(row.get("r:dipoleLength")), "[arcsec] Dipole length (lobe separation)")
     hdr["DIPANG"] = (safe_float(row.get("r:dipoleAngle")), "[deg]    Dipole angle from dipoleFitter")
-    # Derived position angle: dipole_PA_deg = (90 - dipoleAngle) mod 360
+    # Dipole direction toward the zenith.
+    # r:dipoleAngle is measured CCW from the East pixel axis in the tangent plane.
+    # It directly tracks the parallactic angle η (notebook 05b confirms r:dipoleAngle ≈ η),
+    # which IS the direction from the source toward the zenith projected onto the sky.
+    # No conversion is needed: DIPPA == r:dipoleAngle.
+    # (The old formula (90 − dipoleAngle) % 360 was a misguided conversion to
+    #  astronomical North-up PA convention and is physically wrong here.)
     raw_ang = row.get("r:dipoleAngle", None)
     if raw_ang is not None and not np.isnan(float(raw_ang)):
-        hdr["DIPPA"] = ((90.0 - float(raw_ang)) % 360.0, "[deg] Dipole PA = (90 - dipoleAngle) mod 360")
+        hdr["DIPPA"] = (float(raw_ang) % 360.0, "[deg] Dipole dir toward zenith = r:dipoleAngle (CCW from E)")
     hdr["DIPFDIF"] = (safe_float(row.get("r:dipoleFluxDiff")), "[nJy] Dipole flux difference")
     hdr["DIPFDIFE"] = (
         safe_float(row.get("r:dipoleFluxDiffErr")),
