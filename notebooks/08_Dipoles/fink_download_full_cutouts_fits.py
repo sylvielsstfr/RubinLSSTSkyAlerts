@@ -308,6 +308,67 @@ def fetch_single_cutout_fits(dia_source_id: int, kind: str) -> fits.HDUList | No
         return None
 
 
+def _ensure_wcs_keywords(hdr: fits.Header, ra_deg: float | None, dec_deg: float | None) -> None:
+    """
+    Ensure that the minimal set of WCS keywords required for a valid TAN projection
+    is present in a FITS header.
+
+    The Fink API returns cutout FITS files that contain CRPIX, CRVAL, and a CD
+    matrix, but frequently omit CTYPE1/2 and CUNIT1/2.  Without these two pairs
+    astropy.wcs.WCS cannot determine the projection or the angular units and
+    silently falls back to a degenerate (pixel-only) WCS.
+
+    This function fills in the missing keywords **only if they are absent**,
+    so it never overwrites values that were already set by the pipeline.
+
+    Conventions applied
+    -------------------
+    * CTYPE1 = 'RA---TAN'  /  CTYPE2 = 'DEC--TAN'   (gnomonic projection, ICRS)
+    * CUNIT1 = 'deg'       /  CUNIT2 = 'deg'
+    * CRVAL1/CRVAL2 are set from the diaSource RA/Dec when absent.
+    * CRPIX1/CRPIX2 are set to the image centre when absent.
+    * WCSAXES = 2  is added when absent.
+
+    Parameters
+    ----------
+    hdr : fits.Header
+        The primary FITS header to patch (modified in place).
+    ra_deg : float or None
+        RA of the diaSource in degrees (ICRS), used as CRVAL1 fallback.
+    dec_deg : float or None
+        Dec of the diaSource in degrees (ICRS), used as CRVAL2 fallback.
+    """
+    # ── Projection type ───────────────────────────────────────────────────────
+    if "CTYPE1" not in hdr:
+        hdr["CTYPE1"] = ("RA---TAN", "Right ascension, gnomonic projection")
+    if "CTYPE2" not in hdr:
+        hdr["CTYPE2"] = ("DEC--TAN", "Declination, gnomonic projection")
+
+    # ── Angular units ─────────────────────────────────────────────────────────
+    if "CUNIT1" not in hdr:
+        hdr["CUNIT1"] = ("deg", "WCS axis 1 unit")
+    if "CUNIT2" not in hdr:
+        hdr["CUNIT2"] = ("deg", "WCS axis 2 unit")
+
+    # ── Reference pixel (centre of stamp when absent) ─────────────────────────
+    if "CRPIX1" not in hdr:
+        naxis1 = hdr.get("NAXIS1", None)
+        hdr["CRPIX1"] = ((naxis1 + 1) / 2.0 if naxis1 else 1.0, "[pix] Reference pixel axis 1")
+    if "CRPIX2" not in hdr:
+        naxis2 = hdr.get("NAXIS2", None)
+        hdr["CRPIX2"] = ((naxis2 + 1) / 2.0 if naxis2 else 1.0, "[pix] Reference pixel axis 2")
+
+    # ── Reference sky coordinates ─────────────────────────────────────────────
+    if "CRVAL1" not in hdr and ra_deg is not None:
+        hdr["CRVAL1"] = (float(ra_deg), "[deg] RA at reference pixel")
+    if "CRVAL2" not in hdr and dec_deg is not None:
+        hdr["CRVAL2"] = (float(dec_deg), "[deg] Dec at reference pixel")
+
+    # ── Number of WCS axes ────────────────────────────────────────────────────
+    if "WCSAXES" not in hdr:
+        hdr["WCSAXES"] = (2, "Number of WCS axes")
+
+
 def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> fits.HDUList:
     """
     Inject diaSource metadata keywords into the primary FITS header.
@@ -333,6 +394,19 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
         The modified HDUList with injected metadata.
     """
     hdr = hdul[0].header
+
+    # ── WCS completeness check ───────────────────────────────────────────────
+    # Fink cutouts often lack CTYPE1/2 and CUNIT1/2; patch them before
+    # any downstream astropy.wcs.WCS call would silently degrade.
+    _ra = row.get("r:ra", None)
+    _dec = row.get("r:dec", None)
+    _ensure_wcs_keywords(
+        hdr,
+        ra_deg=float(_ra) if _ra is not None and not (isinstance(_ra, float) and np.isnan(_ra)) else None,
+        dec_deg=float(_dec)
+        if _dec is not None and not (isinstance(_dec, float) and np.isnan(_dec))
+        else None,
+    )
 
     # ── Provenance / identification ──────────────────────────────────────────
     hdr["CUTTYPE"] = (kind, "Cutout type: Science / Template / Difference")
