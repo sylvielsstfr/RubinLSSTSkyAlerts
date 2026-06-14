@@ -175,6 +175,14 @@ FINK_FITS_FORMAT = "FITS"
 
 MISSING = -9999.0
 
+# Flags for WCS adds
+FLAG_SET_CTYPE = True
+FLAG_SET_CUNIT = True
+FLAG_SET_CRPIX = True
+FLAG_SET_CRVAL = True
+FLAG_SET_WCSAXES = True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # API helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,34 +353,40 @@ def _ensure_wcs_keywords(hdr: fits.Header, ra_deg: float | None, dec_deg: float 
     dec_deg : float or None
         Dec of the diaSource in degrees (ICRS), used as CRVAL2 fallback.
     """
+
     # ── Projection type ───────────────────────────────────────────────────────
-    if "CTYPE1" not in hdr:
-        hdr["CTYPE1"] = ("RA---TAN", "Right ascension, gnomonic projection")
-    if "CTYPE2" not in hdr:
-        hdr["CTYPE2"] = ("DEC--TAN", "Declination, gnomonic projection")
+    if FLAG_SET_CTYPE:
+        if "CTYPE1" not in hdr:
+            hdr["CTYPE1"] = ("RA---TAN", "Right ascension, gnomonic projection")
+        if "CTYPE2" not in hdr:
+            hdr["CTYPE2"] = ("DEC--TAN", "Declination, gnomonic projection")
 
     # ── Angular units ─────────────────────────────────────────────────────────
-    if "CUNIT1" not in hdr:
-        hdr["CUNIT1"] = ("deg", "WCS axis 1 unit")
-    if "CUNIT2" not in hdr:
-        hdr["CUNIT2"] = ("deg", "WCS axis 2 unit")
+    if FLAG_SET_CUNIT:
+        if "CUNIT1" not in hdr:
+            hdr["CUNIT1"] = ("deg", "WCS axis 1 unit")
+        if "CUNIT2" not in hdr:
+            hdr["CUNIT2"] = ("deg", "WCS axis 2 unit")
 
     # ── Reference pixel (centre of stamp when absent) ─────────────────────────
-    if "CRPIX1" not in hdr:
-        naxis1 = hdr.get("NAXIS1", None)
-        hdr["CRPIX1"] = ((naxis1 + 1) / 2.0 if naxis1 else 1.0, "[pix] Reference pixel axis 1")
-    if "CRPIX2" not in hdr:
-        naxis2 = hdr.get("NAXIS2", None)
-        hdr["CRPIX2"] = ((naxis2 + 1) / 2.0 if naxis2 else 1.0, "[pix] Reference pixel axis 2")
+    if FLAG_SET_CRPIX:
+        if "CRPIX1" not in hdr:
+            naxis1 = hdr.get("NAXIS1", None)
+            hdr["CRPIX1"] = ((naxis1 + 1) / 2.0 if naxis1 else 1.0, "[pix] Reference pixel axis 1")
+        if "CRPIX2" not in hdr:
+            naxis2 = hdr.get("NAXIS2", None)
+            hdr["CRPIX2"] = ((naxis2 + 1) / 2.0 if naxis2 else 1.0, "[pix] Reference pixel axis 2")
 
     # ── Reference sky coordinates ─────────────────────────────────────────────
-    if "CRVAL1" not in hdr and ra_deg is not None:
-        hdr["CRVAL1"] = (float(ra_deg), "[deg] RA at reference pixel")
-    if "CRVAL2" not in hdr and dec_deg is not None:
-        hdr["CRVAL2"] = (float(dec_deg), "[deg] Dec at reference pixel")
+    if FLAG_SET_CRVAL:
+        if "CRVAL1" not in hdr and ra_deg is not None:
+            hdr["CRVAL1"] = (float(ra_deg), "[deg] RA at reference pixel")
+        if "CRVAL2" not in hdr and dec_deg is not None:
+            hdr["CRVAL2"] = (float(dec_deg), "[deg] Dec at reference pixel")
 
     # ── Number of WCS axes ────────────────────────────────────────────────────
-    if "WCSAXES" not in hdr:
+    if FLAG_SET_WCSAXES and "WCSAXES" not in hdr:
+        # if "WCSAXES" not in hdr:
         hdr["WCSAXES"] = (2, "Number of WCS axes")
 
 
@@ -459,8 +473,8 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     hdr["DIPFIT"] = (bool(row.get("r:dipoleFitAttempted", False)), "True if dipole fit was attempted")
     hdr["DIPLEN"] = (safe_float(row.get("r:dipoleLength")), "[arcsec] Dipole length (lobe separation)")
     hdr["DIPANG"] = (safe_float(row.get("r:dipoleAngle")), "[deg]    Dipole angle from dipoleFitter")
-    # Dipole direction toward the zenith.
-    # r:dipoleAngle is measured CCW from the East pixel axis in the tangent plane.
+    # Dipole direction in principle should align toward the zenith.
+    # r:dipoleAngle is measured relative to the Nort  axis in the tangent plahne.
     # It directly tracks the parallactic angle η (notebook 05b confirms r:dipoleAngle ≈ η),
     # which IS the direction from the source toward the zenith projected onto the sky.
     # No conversion is needed: DIPPA == r:dipoleAngle.
@@ -636,6 +650,7 @@ def download_full_cutouts_fits(
 
     # ── Step 3: download FITS cutout stamps ──────────────────────────────────
     results = []
+    # loop on row containing source info
     for i, row in df_sources.iterrows():
         src_id = int(row["r:diaSourceId"])
         band = row["r:band"]
@@ -733,9 +748,9 @@ def download_full_cutouts_fits(
 
     # ── Step 4: save diaSource manifest ──────────────────────────────────────
     df_manifest = pd.DataFrame(results)
-    df_manifest.to_parquet(outdir / "manifest.parquet", index=False)
-    df_manifest.to_csv(outdir / "manifest.csv", index=False)
-    print(f"\n  manifest saved → {outdir / 'manifest.csv'}")
+    df_manifest.to_parquet(outdir / "manifest_src.parquet", index=False)
+    df_manifest.to_csv(outdir / "manifest_src.csv", index=False)
+    print(f"\n  manifest saved → {outdir / 'manifest_src.csv'}")
 
     # ── Step 5: fetch and save forced photometry ──────────────────────────────
     print()
