@@ -36,7 +36,9 @@ FITS header convention:
     - Custom keywords injected from the diaSource manifest:
         OBJID    → r:diaObjectId
         SRCID    → r:diaSourceId
-        MJD      → r:midpointMjdTai
+        MJD-OBS  → r:midpointMjdTai  [MJD, TAI]  (standard FITS keyword)
+        TIMESYS  → 'TAI'
+        DATE-OBS → UTC ISO string derived from midpointMjdTai
         BAND     → r:band
         RA_SRC   → r:ra  (source RA, deg)
         DEC_SRC  → r:dec (source Dec, deg)
@@ -50,6 +52,9 @@ FITS header convention:
         DIPANG   → r:dipoleAngle
         DIPPA    → Dipole direction toward zenith = r:dipoleAngle (CCW from East pixel axis)
         CUTTYPE  → kind ('Science', 'Template', 'Difference')
+        OBS-LAT  → RUBIN_LAT_DEG  (notebook convention, used by plot_cutout_wcs_with_directions)
+        OBS-LONG → RUBIN_LON_DEG
+        OBS-ELEV → RUBIN_HEIGHT_M
 
 Column naming convention (LSST DPDD schema):
   - Prefix 'r:' → diaSource / diaObject table field (NOT the spectral band 'r')
@@ -79,6 +84,7 @@ import numpy as np
 import pandas as pd
 import requests
 from astropy.io import fits
+from astropy.time import Time
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config
@@ -413,7 +419,7 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     hdr["CUTTYPE"] = (kind, "Cutout type: Science / Template / Difference")
     hdr["OBJID"] = (int(row.get("r:diaObjectId", -1)), "LSST diaObjectId")
     hdr["SRCID"] = (int(row.get("r:diaSourceId", -1)), "LSST diaSourceId")
-    hdr["MJD"] = (float(row.get("r:midpointMjdTai", float("nan"))), "Midpoint MJD TAI of exposure")
+    # MJD-OBS (standard keyword) is injected below at the observatory block
     hdr["BAND"] = (str(row.get("r:band", "")), "LSST photometric band {u,g,r,i,z,y}")
     hdr["VISIT"] = (int(row.get("r:visit", -1)), "Rubin visit identifier")
     hdr["DETNUM"] = (int(row.get("r:detector", -1)), "Rubin detector number")
@@ -495,11 +501,20 @@ def inject_diasource_metadata(hdul: fits.HDUList, row: pd.Series, kind: str) -> 
     gaia_vf = row.get("f:fxm_gaiadr3_VarFlag", None)
     hdr["GAIAVRFL"] = (str(gaia_vf) if gaia_vf is not None else "", "Gaia DR3 variability flag")
 
-    # ── Observatory metadata ─────────────────────────────────────────────────
+    # ── Observation time keywords (standard + notebook convention) ─────────────
+    mjd_val = float(row.get("r:midpointMjdTai", float("nan")))
+    if np.isfinite(mjd_val):
+        obstime = Time(mjd_val, format="mjd", scale="tai")
+        hdr["MJD-OBS"] = (mjd_val, "Observation midpoint [MJD, TAI]")
+        hdr["TIMESYS"] = ("TAI", "Time system")
+        hdr["DATE-OBS"] = (obstime.utc.isot, "UTC ISO observation time")
+        hdr.add_comment("Time keywords from Fink r:midpointMjdTai")
+
+    # ── Observatory metadata (OBS-LAT/LONG/ELEV matches notebook convention) ──
     hdr["TELESCOP"] = ("Rubin LSST", "Telescope name")
-    hdr["OBSLAT"] = (RUBIN_LAT_DEG, "[deg] Observatory latitude (south negative)")
-    hdr["OBSLON"] = (RUBIN_LON_DEG, "[deg] Observatory longitude")
-    hdr["OBSALT"] = (RUBIN_HEIGHT_M, "[m]   Observatory altitude")
+    hdr["OBS-LAT"] = (RUBIN_LAT_DEG, "[deg] Observatory geodetic latitude")
+    hdr["OBS-LONG"] = (RUBIN_LON_DEG, "[deg] Observatory east longitude")
+    hdr["OBS-ELEV"] = (RUBIN_HEIGHT_M, "[m]   Observatory altitude above sea level")
 
     # hdr.add_comment("LSST diaSource cutout with WCS and dipole metadata — fink_download_full_cutouts_fits.py")
     hdr.add_comment("fink_download_full_cutouts_fits.py")
