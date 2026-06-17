@@ -41,7 +41,7 @@ across the LSST **Deep Drilling Fields** (DDFs).
 | Notebook | Description |
 |----------|-------------|
 | `03_dipoleobjectcorr.ipynb` | **Dipole concentration per diaObject** — conesearch variant. Retrieves alerts via `/api/v1/conesearch`, deduplicates by `diaObjectId`, pre-selects objects with `nDiaSources >= NDIASOURCES_MIN`, downloads full diaSources via `/api/v1/sources`. Computes per-object dipole counts and fractions, Lorenz curve + Gini coefficient, psfFlux−apFlux diagnostics, light curves, and angular stability of dipole direction. Saves to `data_DIPOLES_03/`. |
-| `03b_dipoleobjectcorr.ipynb` | **Dipole concentration per diaObject** — cached-parquet variant of `03`. Conesearch step replaced by reading `01c` parquets. Adds Gini coefficient annotation and per-band psfFlux−apFlux histograms. Writes per-object source parquets and statistics to `data_DIPOLES_03b/`. |
+| `03b_dipoleobjectcorr.ipynb` | **Dipole concentration per diaObject** — cached-parquet variant of `03`. Conesearch step replaced by reading `01c` parquets. Adds Gini coefficient annotation and per-band psfFlux−apFlux histograms. Writes per-object source parquets and statistics to `data_DIPOLES_03b/`. ★ **produces the top-ranked object list used by 12a** |
 | `04_reloaddipoleobjectcorr.ipynb` | **Fully offline reload** of `03b`. Reads all files from `data_DIPOLES_03b/` and reproduces every figure without any API call. Figures go to `figs_DIPOLES_04/`. |
 
 ### Parallactic angle and DCR orientation analysis
@@ -49,23 +49,31 @@ across the LSST **Deep Drilling Fields** (DDFs).
 | Notebook | Description |
 |----------|-------------|
 | `05_dipole_parallacticcorr.ipynb` | Correlates the **dipole orientation** (`r:dipoleAngle`) with the **parallactic angle** computed from observing metadata (hour angle, declination, observatory latitude). First full exploration: scatter plots, profile histograms, and rose diagrams of dipole PA vs. parallactic angle per DDF and per band. Loads from `data_DIPOLES_01c/`. Saves to `figs_DIPOLES_05/`. |
-| `05b_dipole_parallacticcorr.ipynb` | Refined version of `05` with extended diagnostics: profile histograms with error bars, rose diagrams for individual DDFs, and scatter plots of `(dipole_PA − parallactic_angle)` residuals as a function of hour angle. Applies the correct angle convention (`dipole_PA_deg = (90 − r:dipoleAngle) mod 360`). Saves to `figs_DIPOLES_05b/`. |
+| `05b_dipole_parallacticcorr.ipynb` | Refined version of `05` with extended diagnostics: profile histograms with error bars, rose diagrams for individual DDFs, and scatter plots of `(dipole_PA − parallactic_angle)` residuals as a function of hour angle. Confirms that `r:dipoleAngle` is directly the astronomical PA (North toward East) — **no 90° offset required**. Saves to `figs_DIPOLES_05b/`. |
 | `06_checkdirections_astroplan.ipynb` | **Observational geometry verification** using `astroplan`. Recomputes parallactic angle and alt/az trajectories for each DDF from visit timestamps in the alert stream and compares with `05b` results. Validates that the DCR direction predicted by theory matches the observed dipole orientation. Saves to `figs_DIPOLES_06/`. |
 
 ### DCR-predicted dipole separation
 
 | Notebook | Description |
 |----------|-------------|
-| `08_dipole_separation.ipynb` | Characterises the **dipole length distribution** per DDF and per band. Produces 2-D density maps of dipole length vs. tan(zenith angle), 1-D distributions, and comparisons with the DCR-predicted shift $\Delta\theta_{\rm DCR}(b) = \sigma_n(b)\,\tan z$ derived in `99_tools/07_DDF_DCR.ipynb`. Includes weighted least-squares fits of dipole length vs. tan(z) per band. Patch scripts `patch_08_density.py` and `patch_08_density_angle.py` were used to insert cells programmatically. Saves to `figs_DIPOLES_08/`. |
+| `08_dipole_separation.ipynb` | Characterises the **dipole length distribution** per DDF and per band. Produces 2-D density maps of dipole length vs. tan(zenith angle), 1-D distributions, and comparisons with the DCR-predicted shift $\Delta\theta_{\rm DCR}(b) = \sigma_n(b)\,\tan z$ derived in `99_tools/07_DDF_DCR.ipynb`. Includes weighted least-squares fits of dipole length vs. tan(z) per band. Saves to `figs_DIPOLES_08/`. |
 | `08b_dipole_separation_selectdiaobj.ipynb` | Same analysis as `08` restricted to a **selected subset of diaObjects** from COSMOS (filtered from `data_DIPOLES_03b/`). Performs per-diaObject temporal analysis: evolution of dipole length and angle vs. tan(z) over visits, weighted least-squares fits per object and per band. Saves to `figs_DIPOLES_08b/`. |
 
-### Cutout inspection
+### Cutout inspection — raw format (`.npy`)
 
 | Notebook | Description |
 |----------|-------------|
-| `12a_downloadSelectedCutouts.ipynb` | Downloads science / template / difference image triplets (stamp cutouts) from the Fink `/api/v1/cutouts` endpoint for a user-defined list of diaObjectIds. Stores FITS cutouts in per-object subdirectories `fullcutouts_{oid}/`. |
-| `12b_viewSelectedCutouts.ipynb` | Displays the downloaded cutout triplets as multi-panel figures for visual inspection. Saves figures to `figs_DIPOLES_12b/` and `figs_FINK_DIPOLES_12b/`. |
+| `12a_downloadSelectedCutouts.ipynb` | Downloads science / template / difference image triplets (stamp cutouts) from the Fink `/api/v1/cutouts` endpoint for a user-defined list of diaObjectIds. Stores cutout arrays as `.npy` files in per-object subdirectories `fullcutouts_{oid}/`. |
+| `12b_viewSelectedCutouts.ipynb` | Displays the downloaded `.npy` cutout triplets as multi-panel figures for visual inspection. Saves figures to `figs_DIPOLES_12b/` and `figs_FINK_DIPOLES_12b/`. |
 | `12c_viewSelectedCutouts_splitbypages.ipynb` | Same as `12b` but renders cutouts **split by page** (configurable number of objects per page) for easier navigation of large object samples. Saves figures to `figs_DIPOLES_12c/`. |
+
+### Cutout inspection — FITS format (WCS-aware) ★ new
+
+| Notebook | Description |
+|----------|-------------|
+| `12_fetch_onecutouts.ipynb` | Fetches the Science / Template / Difference cutout **triplet for a single diaSource** from Fink and saves them as FITS. Injects time and observatory keywords (`MJD-OBS`, `TIMESYS`, `DATE-OBS`, `OBS-LAT`, `OBS-LONG`, `OBS-ELEV`) into the headers before saving. Displays the Difference image with WCS axes and four direction overlays: **N** (red), **E** (blue), **Z** (yellow, = zenith along parallactic angle η), **Dip** (cyan ↔, = `r:dipoleAngle` PA). Colourmap: `RdBu_r` + `TwoSlopeNorm(vcenter=0)` for the Difference; shared ZScale for Science / Template. |
+| `12a_downloadSelectedCutoutsFits.ipynb` | Downloads and caches ALL cutout triplets for the **top-ranked dipole objects** from `03b`, saving each stamp as a **self-describing FITS file** (WCS + diaSource metadata injected into the PRIMARY header). Also downloads forced photometry. Delegates to `fink_download_full_cutouts_fits.py`. Output: `fullcutouts_fits_{oid}/manifest.{csv,parquet}`, `manifest_fp.{csv,parquet}`, `cutouts/{srcId}_{band}_{kind}.fits`. |
+| `12b_viewSelectedCutoutsFits.ipynb` | Displays the FITS cutout triplets produced by `12a_downloadSelectedCutoutsFits`. Renders a **2 × 3 grid** per diaSource (info panel / Science / Template / light curve / DIA Difference / Sci−Tpl). WCS direction vectors derived from the PC matrix via `wcs.wcs.get_pc()`. Parallactic angle computed with the Meeus formula; `.to_value(u.rad)` idiom used to avoid astropy Quantity propagation issues in `arctan2`. Figures saved as PDF + PNG to `figs_DIPOLES_12b_fits/`. |
 
 ---
 
@@ -73,9 +81,9 @@ across the LSST **Deep Drilling Fields** (DDFs).
 
 | Script | Description |
 |--------|-------------|
-| `fink_download_full_cutouts.py` | Standalone script to batch-download FITS cutout triplets from the Fink API for a list of diaObjectIds. Used as the backend called by `12a`. |
-| `patch_08_density.py` | Patch script for programmatic cell insertion in `08_dipole_separation.ipynb` — adds 2-D density plot cells. Uses `json.load`/`json.dump` to manipulate the notebook JSON. |
-| `patch_08_density_angle.py` | Patch script for programmatic cell insertion in `08_dipole_separation.ipynb` — adds dipole-angle density and weighted-fit cells. |
+| `fink_download_full_cutouts.py` | Batch-download FITS cutout triplets + forced photometry for a list of diaObjectIds (`.npy` format). Backend used by `12a_downloadSelectedCutouts`. |
+| `fink_download_full_cutouts_fits.py` | Same, but saves cutouts as **FITS files** with full WCS and diaSource metadata injected into the PRIMARY header. Backend imported by `12a_downloadSelectedCutoutsFits`. Includes `MJD-OBS`, `TIMESYS`, `DATE-OBS`, `OBS-LAT/LONG/ELEV` keywords. |
+| `fink_download_full_cutouts_fits_complicated.py` | Development / experimental version of the FITS download script — kept as a reference for more complex header injection strategies. Not used by the main notebooks. |
 
 ---
 
@@ -91,7 +99,7 @@ across the LSST **Deep Drilling Fields** (DDFs).
 | `r:dipoleMeanFlux` | Mean of positive and negative lobe fluxes (nJy) |
 | `r:dipoleMeanFluxErr` | Uncertainty on `dipoleMeanFlux` (nJy) |
 | `r:dipoleLength` | Angular separation between lobes (arcsec) |
-| `r:dipoleAngle` | Dipole axis angle CCW from the +x pixel axis (degrees). Convert to astronomical PA via `dipole_PA_deg = (90 − r:dipoleAngle) mod 360`. |
+| `r:dipoleAngle` | Dipole axis position angle measured from **North toward East** (standard astronomical PA convention, degrees). Used directly — no offset transformation required. |
 | `r:dipoleNdata` | Number of pixels used in the dipole fit |
 | `r:dipoleChi2` | Chi² of the dipole fit |
 
@@ -108,14 +116,41 @@ across the LSST **Deep Drilling Fields** (DDFs).
 
 ## Angle convention note
 
-`r:dipoleAngle` is measured **counter-clockwise from the +x pixel axis** (pixel frame).
-To convert to the standard **astronomical position angle** (North through East, on-sky):
+`r:dipoleAngle` is the **position angle of the dipole axis measured from North toward East**
+(standard astronomical PA convention, in degrees), as confirmed by the alignment with the
+parallactic angle in notebooks `05b` and `06`.
+
+It is used **directly** — no offset transformation is required:
 
 ```python
-dipole_PA_deg = (90.0 - r_dipoleAngle) % 360.0
+dipole_PA_deg = r_dipoleAngle   # already North-toward-East PA
 ```
 
-This conversion is applied in notebooks `05b` and `06` onwards.
+The dipole axis is bilateral (it has no preferred direction), so it is drawn as a
+double-headed arrow (↔) symmetric about the image centre.
+
+> **Note:** earlier versions of notebooks `05` and some comments in the `01` series
+> applied a `(90 − angle) mod 360` conversion. This was corrected in `05b` after
+> comparison with `astroplan`-computed parallactic angles confirmed that `r:dipoleAngle`
+> is already the astronomical PA.
+
+---
+
+## Key scientific result
+
+The **dipole axis (`r:dipoleAngle`) is aligned with the zenith direction** in the
+observation plane, confirming that dipole artefacts in Rubin/LSST DIA images are
+caused by **Differential Chromatic Refraction (DCR)**:
+
+$$\Delta\theta_{\rm DCR}(b) = \sigma_n(b) \cdot \tan z$$
+
+where $\sigma_n(b)$ is the photon-count-weighted refractive-index dispersion across
+band $b$ (from Ciddor formula + LSST throughputs, see `99_tools/07_DDF_DCR.ipynb`)
+and $z$ is the zenith angle. The colour mismatch between the science and template
+images shifts the PSF centroid along the parallactic angle direction, producing a
+positive/negative dipole in the difference image oriented along the Zenith arrow
+overlay. `r:dipoleAngle` can therefore be used directly (without any 90° offset)
+as a proxy for the parallactic angle.
 
 ---
 
@@ -148,19 +183,25 @@ Observatory: Cerro Pachón, `lat = −30.2447°`, `lon = −70.7494°`
 ├── 02_fink_dipoles_uniformity.ipynb                  ← angular correlation, all DDFs
 ├── 02b_fink_dipoles_uniformity_in_one_DDF.ipynb      ← time-sliced correlation, one DDF
 ├── 03_dipoleobjectcorr.ipynb                         ← dipole concentration, conesearch variant
-├── 03b_dipoleobjectcorr.ipynb                        ← dipole concentration, cached-parquet variant
+├── 03b_dipoleobjectcorr.ipynb                        ← dipole concentration, cached-parquet ★
 ├── 04_reloaddipoleobjectcorr.ipynb                   ← offline reload of 03b
 ├── 05_dipole_parallacticcorr.ipynb                   ← dipole PA vs. parallactic angle (first pass)
-├── 05b_dipole_parallacticcorr.ipynb                  ← refined parallactic correlation + correct convention
+├── 05b_dipole_parallacticcorr.ipynb                  ← refined, confirms direct PA convention
 ├── 06_checkdirections_astroplan.ipynb                ← geometry verification with astroplan
 ├── 08_dipole_separation.ipynb                        ← dipole length vs. tan(z), all DDFs
 ├── 08b_dipole_separation_selectdiaobj.ipynb          ← dipole length vs. tan(z), selected objects
-├── 12a_downloadSelectedCutouts.ipynb                 ← download FITS cutout triplets
-├── 12b_viewSelectedCutouts.ipynb                     ← display cutout triplets
-├── 12c_viewSelectedCutouts_splitbypages.ipynb        ← display cutouts, split by page
-├── fink_download_full_cutouts.py                     ← batch cutout download script
-├── patch_08_density.py                               ← notebook patch script (density cells)
-├── patch_08_density_angle.py                         ← notebook patch script (angle+fit cells)
+│
+├── 12_fetch_onecutouts.ipynb                         ← FITS cutout for one diaSource + WCS overlays ★ new
+├── 12a_downloadSelectedCutouts.ipynb                 ← batch download cutouts as .npy
+├── 12a_downloadSelectedCutoutsFits.ipynb             ← batch download cutouts as FITS ★ new
+├── 12b_viewSelectedCutouts.ipynb                     ← display .npy cutout triplets
+├── 12b_viewSelectedCutoutsFits.ipynb                 ← display FITS cutouts + WCS N/E/Z/Dip overlays ★ new
+├── 12b_viewSelectedCutoutsFits_backup.ipynb          ← backup of 12b_viewSelectedCutoutsFits
+├── 12c_viewSelectedCutouts_splitbypages.ipynb        ← display .npy cutouts, split by page
+│
+├── fink_download_full_cutouts.py                     ← batch .npy cutout download script
+├── fink_download_full_cutouts_fits.py                ← batch FITS cutout download script ★ new
+├── fink_download_full_cutouts_fits_complicated.py    ← experimental FITS download variant
 ├── swagger.json                                      ← Fink LSST API OpenAPI spec (reference)
 │
 ├── data_DIPOLES_01/                      ← parquets from notebook 01
@@ -173,7 +214,7 @@ Observatory: Cerro Pachón, `lat = −30.2447°`, `lon = −70.7494°`
 │   ├── presel_catalogue.{parquet,csv}
 │   ├── dipole_stats_from_sources.{parquet,csv}
 │   ├── all_src_presel.parquet
-│   ├── topranked_objects_dipoles.{parquet,csv}
+│   ├── topranked_objects_dipoles.{parquet,csv}    ← top-ranked objects → input for 12a FITS
 │   ├── dipole_angle_stability.csv
 │   └── src_per_object/
 │       └── {diaObjectId}_src.parquet
@@ -192,11 +233,19 @@ Observatory: Cerro Pachón, `lat = −30.2447°`, `lon = −70.7494°`
 ├── figs_DIPOLES_06/                      ← figures from notebook 06
 ├── figs_DIPOLES_08/                      ← figures from notebook 08
 ├── figs_DIPOLES_08b/                     ← figures from notebook 08b
-├── figs_DIPOLES_12b/                     ← figures from notebook 12b
+├── figs_DIPOLES_12b/                     ← figures from notebook 12b (.npy format)
+├── figs_DIPOLES_12b_fits/                ← figures from notebook 12b FITS (PDF+PNG) ★ new
 ├── figs_DIPOLES_12c/                     ← figures from notebook 12c
 ├── figs_FINK_DIPOLES_12b/                ← additional cutout figures (Fink stamp format)
 │
-└── fullcutouts_{oid}/                    ← FITS cutout triplets per object (from 12a)
+├── fullcutouts_{oid}/                    ← .npy cutout triplets per object (from 12a)
+├── fullcutouts_fits_{oid}/               ← FITS cutout triplets per object (from 12a FITS) ★ new
+│   ├── manifest.{csv,parquet}
+│   ├── manifest_fp.{csv,parquet}
+│   └── cutouts/
+│       └── {diaSourceId}_{band}_{Science|Template|Difference}.fits
+│
+└── *.fits                                ← example single-diaSource cutout triplets
 ```
 
 ---
@@ -206,34 +255,39 @@ Observatory: Cerro Pachón, `lat = −30.2447°`, `lon = −70.7494°`
 ```
 01c_fink_dipoles_per_ddf  (★ main input)
         │
-        ├─────────────────────────────────────────────────┐
-        │                                                 │
-        ▼                                                 ▼
-01d (offline reload)               03b_dipoleobjectcorr
-                                           │
-        ├──────────────────┐               ├──────────────────┐
-        ▼                  ▼               ▼                  ▼
-02_uniformity     02b_uniformity   04_reloaddipoleobjectcorr  08b_separation
-(all DDFs)        (one DDF, sliced)  (offline reload)         (selected objects)
+        ├──────────────────────────────────────────────────┐
+        │                                                  │
+        ▼                                                  ▼
+01d (offline reload)                        03b_dipoleobjectcorr ★
+                                                    │
+        ┌───────────────────┐                       ├────────────────────┐
+        ▼                   ▼                       ▼                    ▼
+02_uniformity       02b_uniformity     04_reloaddipoleobjectcorr   08b_separation
+(all DDFs)          (one DDF, sliced)   (offline reload)           (selected objects)
+                                               │
+                                    12a_downloadSelectedCutoutsFits ★ new
+                                               │
+                                    12b_viewSelectedCutoutsFits ★ new
 
-05_dipole_parallacticcorr  ← loads from data_DIPOLES_01c/
+05_dipole_parallacticcorr     ← loads from data_DIPOLES_01c/
         │
         ▼
-05b_dipole_parallacticcorr (refined, correct angle convention)
+05b_dipole_parallacticcorr    (refined, direct PA convention confirmed)
         │
         ▼
 06_checkdirections_astroplan  (astroplan geometry verification)
 
-08_dipole_separation  ← loads from data_DIPOLES_01c/
+08_dipole_separation          ← loads from data_DIPOLES_01c/
 
-03_dipoleobjectcorr  ← independent (conesearch variant, no 01c dependency)
+03_dipoleobjectcorr           ← independent (conesearch variant, no 01c dependency)
 
-12a_downloadSelectedCutouts  ← diaObjectIds from 03b/04
-        │
+12_fetch_onecutouts           ← standalone: one object, interactive FITS + WCS ★ new
+
+12a_downloadSelectedCutouts   ← diaObjectIds from 03b/04 (.npy format)
         ├──► 12b_viewSelectedCutouts
         └──► 12c_viewSelectedCutouts_splitbypages
 
-00_show_cone_slicing_ddf     ← standalone utility
+00_show_cone_slicing_ddf      ← standalone utility
 0001_SphereForParalacticAngle ← standalone derivation
 01_fink_dipoles_per_ddf       ← independent first-pass retrieval
 01b_fink_dipoles_per_ddf      ← independent extended retrieval
@@ -241,32 +295,12 @@ Observatory: Cerro Pachón, `lat = −30.2447°`, `lon = −70.7494°`
 
 ---
 
-## Scientific context
-
-The central question is whether the **amplitude and orientation of dipole artefacts**
-in Rubin DIA alerts can be explained by **Differential Chromatic Refraction**:
-
-$$\Delta\theta_{\rm DCR}(b) = \sigma_n(b) \cdot \tan z$$
-
-where $\sigma_n(b)$ is the photon-count-weighted refractive-index dispersion across band $b$
-(computed from the Ciddor formula and LSST throughput curves in `99_tools/07_DDF_DCR.ipynb`),
-and $z$ is the zenith angle. The dipole axis is expected to point along the **parallactic
-angle** direction, and its length should scale linearly with $\tan z$.
-
-Key results investigated:
-- Dipole length vs. $\tan z$ per band — linear scaling consistent with DCR prediction
-- Dipole PA vs. parallactic angle — alignment confirms atmospheric refraction as the
-  dominant source of mis-registration
-- Per-diaObject temporal analysis — evolution of dipole properties as template improves
-
----
-
 ## Dependencies
 
-- `requests` — Fink API HTTP calls (notebooks 01–03b only; not needed for offline-reload notebooks)
+- `requests` — Fink API HTTP calls (notebooks 01–03b, 12, 12a only)
 - `pandas`, `numpy`, `matplotlib`, `astropy`
-- `astroplan` — observational geometry in notebooks `04_DDF_astroplan` and `06`
-- `treecorr` *(optional but recommended)* — fast two-point correlation in notebooks 02/02b; NumPy/KDTree fallback used if absent
+- `astroplan` — observational geometry in notebook `06`
+- `treecorr` *(optional but recommended)* — fast two-point correlation in notebooks 02/02b; NumPy/KDTree flat-sky fallback used if absent
 - `scipy` — KDTree for flat-sky correlation fallback, weighted least-squares fits
 - `healpy` *(optional)* — HEALPix sky maps in exploration sections
 
